@@ -1,0 +1,88 @@
+name: XyrisOS CI
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+jobs:
+  simulator-tests:
+    name: Build and Test XyrisSim
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install simulator dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc
+
+      - name: Configure simulator
+        run: |
+          cmake -S simulator \
+                -B simulator/build \
+                -G Ninja \
+                -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build simulator
+        run: |
+          cmake --build simulator/build
+
+      - name: Run simulator test suite
+        run: |
+          ctest --test-dir simulator/build --output-on-failure
+
+      - name: Run simulator test script
+        run: |
+          ./scripts/simulator-test.sh
+
+      - name: Check for whitespace errors
+        run: |
+          git diff --check
+
+  kernel-build:
+    name: Build XyrisOS Kernel
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install kernel build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc
+
+      - name: Build XyrisOS kernel
+        run: |
+          ./scripts/build.sh
+
+      - name: Check for whitespace errors
+        run: |
+          git diff --check
+
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs:
+      - simulator-tests
+      - kernel-build
+
+    steps:
+      - name: Report successful CI completion
+        run: |
+          echo "=========================================="
+          echo "       XyrisOS CI COMPLETED SUCCESSFULLY"
+          echo "=========================================="
+          echo "Simulator build: PASSED"
+          echo "Simulator tests: PASSED"
+          echo "Kernel build:    PASSED"
+          echo "Code quality:    PASSED"

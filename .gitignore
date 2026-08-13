@@ -1,0 +1,42 @@
+# Build output
+build/
+
+# Generated ISO
+*.iso
+
+# Generated kernel binaries
+*.elf
+
+# ISO staging directory
+iso_root/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Ninja
+.ninja_deps
+.ninja_log
+build.ninja
+
+# Object files
+*.o
+*.obj
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# VS Code
+.vscode/
+
+# CLion
+.idea/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.dbtools/image_converter/image_converter
