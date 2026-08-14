@@ -129,7 +129,11 @@ void scheduler_exit_current(void)
         current->scheduler_managed = false;
         if (scheduler.total_threads > 0) scheduler.total_threads--;
     }
-    process_thread_exited(current->owner);
+    if (!current->exit_accounted)
+    {
+        process_thread_exited(current->owner);
+        current->exit_accounted = true;
+    }
     scheduler_schedule();
     for (;;) __asm__ volatile("hlt");
 }
