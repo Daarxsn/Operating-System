@@ -11,7 +11,6 @@ cd "$PROJECT_ROOT"
 echo "=========================================="
 echo "       XyrisOS Validation Pipeline"
 echo "=========================================="
-
 echo "[1/5] Clean kernel build"
 rm -rf "$BUILD_DIR"
 cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" -G Ninja \
@@ -47,12 +46,14 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
     QEMU_LOG="$PROJECT_ROOT/build/qemu-runtime.log"
     QEMU_RC=0
 
+    # Keep a real display device available so Limine can satisfy the
+    # framebuffer request used by the graphical boot console. Serial
+    # output remains the headless evidence channel.
     timeout 30s qemu-system-x86_64 \
         -m 512M \
         -cdrom "$PROJECT_ROOT/XyrisOS.iso" \
         -boot d \
         -serial stdio \
-        -display none \
         -no-reboot \
         >"$QEMU_LOG" 2>&1 || QEMU_RC=$?
 
