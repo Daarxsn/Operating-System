@@ -11,10 +11,10 @@ cd "$PROJECT_ROOT"
 echo "=========================================="
 echo "       XyrisOS Validation Pipeline"
 echo "=========================================="
-
 echo "[1/5] Clean kernel build"
 rm -rf "$BUILD_DIR"
-cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" -G Ninja
+cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" -G Ninja \
+    -DCMAKE_TOOLCHAIN_FILE="$PROJECT_ROOT/toolchain/x86_64-toolchain.cmake"
 cmake --build "$BUILD_DIR"
 
 echo "[2/5] Unresolved-symbol audit"
@@ -46,29 +46,25 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
     QEMU_LOG="$PROJECT_ROOT/build/qemu-runtime.log"
     QEMU_RC=0
 
-    # XyrisOS intentionally keeps the kernel alive after the scheduler
-    # smoke test, so a timeout is expected. Runtime acceptance is based
-    # on observable boot and scheduler completion markers, not QEMU's
-    # eventual exit status.
+    # Keep a real display device available so Limine can satisfy the
+    # framebuffer request used by the graphical boot console. Serial
+    # output remains the headless evidence channel.
     timeout 30s qemu-system-x86_64 \
         -m 512M \
         -cdrom "$PROJECT_ROOT/XyrisOS.iso" \
         -boot d \
         -serial stdio \
-        -display none \
         -no-reboot \
         >"$QEMU_LOG" 2>&1 || QEMU_RC=$?
 
     if grep -q "\[FAIL\]" "$QEMU_LOG"; then
         echo "ERROR: kernel reported one or more test failures."
-        echo "--- QEMU output ---"
         cat "$QEMU_LOG"
         exit 1
     fi
 
     if grep -q "PMM FREE REJECT" "$QEMU_LOG"; then
         echo "ERROR: PMM rejected one or more physical-page frees."
-        echo "--- QEMU output ---"
         cat "$QEMU_LOG"
         exit 1
     fi
@@ -85,7 +81,6 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
     else
         echo "ERROR: required QEMU runtime markers were not detected."
         echo "QEMU exit status: $QEMU_RC"
-        echo "--- QEMU output ---"
         cat "$QEMU_LOG"
         exit 1
     fi
