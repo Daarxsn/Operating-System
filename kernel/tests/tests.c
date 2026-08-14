@@ -3,6 +3,7 @@
 #include "memory_tests.h"
 #include "fs_tests.h"
 #include "scheduler_test.h"
+#include "foundation_tests.h"
 
 void run_kernel_tests(void)
 {
@@ -22,10 +23,12 @@ void run_kernel_tests(void)
     /*
      * Phase 4:
      * Process/thread registration and scheduler lifecycle tests.
-     *
-     * The actual context-switch smoke test runs later from
-     * kernel/core/kernel.c because scheduler_start() does not
-     * return to the boot path.
      */
     scheduler_test_run();
+
+    /*
+     * Phase 5:
+     * Foundation and driver manager tests.
+     */
+    run_foundation_tests();
 }

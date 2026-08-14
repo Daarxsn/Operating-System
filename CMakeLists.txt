@@ -17,6 +17,7 @@ add_executable(kernel.elf
     kernel/tests/memory_tests.c
     kernel/tests/fs_tests.c
     kernel/tests/scheduler_test.c
+    kernel/tests/foundation_tests.c
 
     # =====================================================
     # Kernel String / Standard Library Support

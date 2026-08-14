@@ -43,19 +43,57 @@ fi
 
 echo "[5/5] QEMU runtime"
 if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS.iso" ]]; then
-    QEMU_LOG="$PROJECT_ROOT/build/qemu-runtime.log"
+        QEMU_LOG="$PROJECT_ROOT/build/qemu-runtime.log"
     QEMU_RC=0
 
-    # Keep a real display device available so Limine can satisfy the
-    # framebuffer request used by the graphical boot console. Serial
-    # output remains the headless evidence channel.
-    timeout 30s qemu-system-x86_64 \
+    rm -f "$QEMU_LOG"
+
+    qemu-system-x86_64 \
         -m 512M \
         -cdrom "$PROJECT_ROOT/XyrisOS.iso" \
         -boot d \
         -serial stdio \
+        -display none \
         -no-reboot \
-        >"$QEMU_LOG" 2>&1 || QEMU_RC=$?
+        -no-shutdown >"$QEMU_LOG" 2>&1 &
+    QEMU_PID=$!
+
+    REQUIRED_MARKERS=(
+        "Kernel Ready"
+        "Syscall Test: Open"
+        "Syscall Test: Read"
+        "Syscall Test: Close"
+        "User Test: Address Space Cleanup"
+        "THREAD A FINISHED"
+        "THREAD B FINISHED"
+    )
+
+    QEMU_STATUS=FAIL
+
+    for ((i=0; i<45; i++)); do
+        if [[ -f "$QEMU_LOG" ]]; then
+            ALL_FOUND=1
+
+            for marker in "${REQUIRED_MARKERS[@]}"; do
+                if [[ ! -s "$QEMU_LOG" ]] || ! grep -qF "$marker" "$QEMU_LOG"; then
+                    ALL_FOUND=0
+                    break
+            fi
+
+            done
+
+            if [[ "$ALL_FOUND" -eq 1 ]]; then
+                QEMU_STATUS=PASS
+                break
+            fi
+        fi
+
+        sleep 1
+    done
+
+    kill "$QEMU_PID" 2>/dev/null || true
+    wait "$QEMU_PID" 2>/dev/null || true
+
 
     if grep -q "\[FAIL\]" "$QEMU_LOG"; then
         echo "ERROR: kernel reported one or more test failures."
