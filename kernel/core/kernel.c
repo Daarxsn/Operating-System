@@ -20,6 +20,8 @@
 #include "cpu/pic.h"
 #include "cpu/pit.h"
 #include "cpu/irq.h"
+#include "cpu/lapic.h"
+#include "cpu/ioapic.h"
 
 #include "memory/memory_map.h"
 #include "memory/hhdm.h"
@@ -291,7 +293,119 @@ static void kernel_initialize_cpu(void)
 
 static void kernel_initialize_interrupts(void)
 {
+    
+    /*
+     * Keep the legacy PIC initialized for compatibility,
+     * but hardware interrupt delivery will use APIC.
+     */
     pic_initialize();
+
+    boot_step_ok(
+        "Programmable Interrupt Controller Initialized"
+    );
+
+    /*
+     * Initialize the Local APIC first.
+     */
+    if (lapic_initialize())
+    {
+        boot_step_ok(
+            "Local APIC Initialized"
+        );
+    }
+    else
+    {
+        boot_step_fail(
+            "Local APIC Initialization Failed"
+        );
+
+        return;
+    }
+
+    debug_print("LAPIC physical base = ");
+    debug_print_hex64(
+        (uint64_t)lapic_physical_base()
+    );
+    debug_print_line("");
+
+    debug_print("LAPIC ID = ");
+    debug_print_hex64(
+        (uint64_t)lapic_id()
+    );
+    debug_print_line("");
+
+    /*
+     * Initialize IOAPIC.
+     */
+    if (ioapic_initialize())
+    {
+        boot_step_ok(
+            "IOAPIC Initialized"
+        );
+    }
+    else
+    {
+        boot_step_fail(
+            "IOAPIC Initialization Failed"
+        );
+
+        return;
+    }
+
+    debug_print("IOAPIC Max IRQ = ");
+    debug_print_hex64(
+        (uint64_t)ioapic_max_irq()
+    );
+    debug_print_line("");
+
+    /*
+     * PIT still generates IRQ0.
+     */
+    pit_initialize(100);
+
+    boot_step_ok(
+        "Programmable Interval Timer Initialized"
+    );
+
+    /*
+     * Route PIT IRQ0 to vector 32 on the BSP LAPIC.
+     *
+     * Start masked while programming the entry.
+     */
+    ioapic_set_irq(
+        0,
+        32,
+        (uint8_t)lapic_id()
+    );
+
+    /*
+     * Unmask IOAPIC IRQ0.
+     */
+    ioapic_unmask_irq(0);
+
+    /*
+     * IMPORTANT:
+     *
+     * We are now using IOAPIC/LAPIC for hardware IRQ delivery.
+     * Mask the legacy PIC so it cannot compete with APIC routing.
+     */
+    pic_mask_irq(0);
+    pic_mask_irq(1);
+    pic_mask_irq(2);
+    pic_mask_irq(12);
+
+    boot_step_ok(
+        "IOAPIC IRQ0 Routed To LAPIC Vector 32"
+    );
+
+    /*
+     * Enable CPU interrupts only after APIC routing is ready.
+     */
+    __asm__ volatile ("sti");
+
+    boot_step_ok(
+        "CPU Interrupts Enabled"
+    );
 
     boot_step_ok(
         "Programmable Interrupt Controller Initialized"

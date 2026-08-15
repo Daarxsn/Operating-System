@@ -92,6 +92,8 @@ add_executable(kernel.elf
     kernel/cpu/irq.c
     kernel/cpu/pit.c
     kernel/cpu/cpu.c
+    kernel/cpu/lapic.c
+    kernel/cpu/ioapic.c
 
 
     # Debug

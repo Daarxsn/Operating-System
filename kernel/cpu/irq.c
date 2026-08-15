@@ -1,6 +1,7 @@
 #include "irq.h"
 #include <stddef.h>
 #include <stdint.h>
+#include "lapic.h"
 
 #include "pic.h"
 #include "pit.h"
@@ -88,7 +89,7 @@ void irq_dispatch(registers_t *regs)
      * Acknowledge the interrupt before attempting
      * a scheduler transition.
      */
-    pic_send_eoi(irq);
+    lapic_eoi();
 
 
     /*
