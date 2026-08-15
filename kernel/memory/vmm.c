@@ -460,6 +460,7 @@ bool vmm_map_page(
         VMM_PWT |
         VMM_PCD |
         VMM_GLOBAL |
+        VMM_COW |
         VMM_NX
     );
 
@@ -615,23 +616,25 @@ bool vmm_protect_page(
     }
 
     flags &= (
+    VMM_WRITABLE |
+    VMM_USER |
+    VMM_PWT |
+    VMM_PCD |
+    VMM_GLOBAL |
+    VMM_COW |
+    VMM_NX
+);
+
+    uint64_t preserve =
+    entry & ~(
         VMM_WRITABLE |
         VMM_USER |
         VMM_PWT |
         VMM_PCD |
         VMM_GLOBAL |
+        VMM_COW |
         VMM_NX
     );
-
-    uint64_t preserve =
-        entry & ~(
-            VMM_WRITABLE |
-            VMM_USER |
-            VMM_PWT |
-            VMM_PCD |
-            VMM_GLOBAL |
-            VMM_NX
-        );
 
     pt[index] =
         preserve | flags;
@@ -835,4 +838,217 @@ void vmm_destroy_space(
      * Free address-space structure.
      */
     kfree(space);
+}
+/* --------------------------------------------------
+   Demand Paging
+-------------------------------------------------- */
+
+#define MAX_DEMAND_PAGES 64
+
+struct demand_page
+{
+    address_space_t* space;
+    uintptr_t virtual_addr;
+    uint64_t flags;
+    bool used;
+};
+
+static struct demand_page demand_pages[MAX_DEMAND_PAGES];
+
+bool vmm_register_demand_page(
+    address_space_t* space,
+    uintptr_t virtual_addr,
+    uint64_t flags)
+{
+    if (space == NULL)
+        return false;
+
+    if ((virtual_addr & (PAGE_SIZE - 1)) != 0)
+        return false;
+
+    if (vmm_translate(space, virtual_addr) != 0)
+        return false;
+
+    for (size_t i = 0; i < MAX_DEMAND_PAGES; i++)
+    {
+        if (!demand_pages[i].used)
+            continue;
+
+        if (demand_pages[i].space == space &&
+            demand_pages[i].virtual_addr == virtual_addr)
+        {
+            return false;
+        }
+    }
+
+    for (size_t i = 0; i < MAX_DEMAND_PAGES; i++)
+    {
+        if (demand_pages[i].used)
+            continue;
+
+        demand_pages[i].space = space;
+        demand_pages[i].virtual_addr = virtual_addr;
+        demand_pages[i].flags = flags;
+        demand_pages[i].used = true;
+
+        return true;
+    }
+
+    return false;
+}
+
+bool vmm_handle_page_fault(
+    address_space_t* space,
+    uintptr_t virtual_addr,
+    uint64_t error_code)
+{
+    if (space == NULL)
+        return false;
+
+    uintptr_t page =
+        virtual_addr & ~(PAGE_SIZE - 1);
+
+    /*
+     * ----------------------------------------------------------
+     * COW WRITE FAULT
+     *
+     * Present + write fault on a page marked VMM_COW.
+     * ----------------------------------------------------------
+     */
+    if ((error_code & 1ULL) &&
+        (error_code & (1ULL << 1)))
+    {
+        uint64_t* pt =
+            walk_page_tables(
+                space,
+                page,
+                false,
+                0
+            );
+
+        if (pt != NULL)
+        {
+            size_t index = PT_INDEX(page);
+            uint64_t entry = pt[index];
+
+            if ((entry & VMM_PRESENT) &&
+                (entry & VMM_COW))
+            {
+                phys_addr_t old_physical =
+                    entry_address(entry);
+
+                uint32_t refcount =
+                    pmm_page_refcount(old_physical);
+
+                /*
+                 * If this is the final reference, there is
+                 * nothing to copy. Just make the page writable.
+                 */
+                if (refcount <= 1)
+                {
+                    uint64_t flags =
+                        entry & ~PAGE_MASK;
+
+                    flags |= VMM_WRITABLE;
+                    flags &= ~VMM_COW;
+
+                    pt[index] =
+                        old_physical |
+                        flags;
+
+                    vmm_flush(page);
+
+                    return true;
+                }
+
+                /*
+                 * Shared page:
+                 * allocate a private copy.
+                 */
+                phys_addr_t new_physical =
+                    pmm_alloc_page();
+
+                if (new_physical == 0)
+                    return false;
+
+                /*
+                 * Copy the complete 4 KiB physical page
+                 * through the HHDM.
+                 */
+                memcpy(
+                    phys_to_virt(new_physical),
+                    phys_to_virt(old_physical),
+                    PAGE_SIZE
+                );
+
+                /*
+                 * Preserve mapping attributes, but make
+                 * the new page writable and no longer COW.
+                 */
+                uint64_t flags =
+                    entry & ~PAGE_MASK;
+
+                flags |= VMM_WRITABLE;
+                flags &= ~VMM_COW;
+
+                pt[index] =
+                    new_physical |
+                    flags;
+
+                vmm_flush(page);
+
+                /*
+                 * Drop this address space's reference to
+                 * the original shared page.
+                 */
+                pmm_release_page(old_physical);
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /*
+     * ----------------------------------------------------------
+     * DEMAND PAGE FAULT
+     *
+     * Non-present registered page.
+     * ----------------------------------------------------------
+     */
+    if (!(error_code & 1ULL))
+    {
+        for (size_t i = 0; i < MAX_DEMAND_PAGES; i++)
+        {
+            if (!demand_pages[i].used)
+                continue;
+
+            if (demand_pages[i].space != space ||
+                demand_pages[i].virtual_addr != page)
+                continue;
+
+            phys_addr_t physical =
+                pmm_alloc_page();
+
+            if (physical == 0)
+                return false;
+
+            if (!vmm_map_page(
+                    space,
+                    page,
+                    physical,
+                    demand_pages[i].flags))
+            {
+                pmm_free_page(physical);
+                return false;
+            }
+
+            demand_pages[i].used = false;
+
+            return true;
+        }
+    }
+
+    return false;
 }

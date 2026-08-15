@@ -12,6 +12,7 @@
  *   - Allocate/free contiguous physical pages
  *   - Reserve/unreserve physical ranges
  *   - Maintain PMM statistics
+ *   - Maintain physical page reference counts
  */
 
 #include "pmm.h"
@@ -29,32 +30,23 @@
 #define PMM_MAX_USABLE_REGIONS 64
 #define INVALID_PAGE_INDEX ((size_t)-1)
 
-/* Successful PMM tracing is disabled in normal runtime builds.
- * Enable explicitly with -DXYRIS_PMM_TRACE=1 when diagnosing PMM. */
 #ifndef XYRIS_PMM_TRACE
 #define XYRIS_PMM_TRACE 0
 #endif
-
-/*
- * The statistics describe actual memory reported by the memory map.
- *
- * The bitmap, however, is indexed by physical page number.  Physical
- * memory can be sparse, so the highest physical address can be much
- * larger than the amount of installed RAM.
- *
- * Therefore:
- *
- *     stats.total_pages
- *         = actual pages represented by the memory map
- *
- *     bitmap_page_count
- *         = physical page-index range covered by the bitmap
- */
 
 static bitmap_t allocation_bitmap;
 static bitmap_t reserved_bitmap;
 
 static uint8_t *bitmap_buffer = NULL;
+
+/*
+ * One reference count per physical page.
+ *
+ * 0 = no active references
+ * 1 = exclusively referenced
+ * 2+ = shared page, suitable for COW
+ */
+static uint32_t *page_refcounts = NULL;
 
 static size_t bitmap_page_count = 0;
 
@@ -64,6 +56,11 @@ usable_regions[PMM_MAX_USABLE_REGIONS];
 static size_t usable_region_count = 0;
 
 static pmm_stats_t stats;
+
+
+/* ================================================================
+ * Debug tracing
+ * ================================================================ */
 
 static void pmm_trace_alloc(
     phys_addr_t page,
@@ -85,11 +82,12 @@ static void pmm_trace_alloc(
 #endif
 }
 
+
 static void pmm_trace_free(
     phys_addr_t page)
 {
 #if XYRIS_PMM_TRACE
-    debug_print("PMM FREE  page=");
+    debug_print("PMM FREE page=");
     debug_print_hex64((uint64_t)page);
     debug_print(" used=");
     debug_print_hex64((uint64_t)stats.used_pages);
@@ -101,12 +99,11 @@ static void pmm_trace_free(
 #endif
 }
 
+
 static void pmm_trace_free_rejected(
     phys_addr_t page,
     const char *reason)
 {
-    /* Rejected frees are always visible: they indicate a real
-     * ownership/accounting defect and must not be hidden. */
     debug_print("PMM FREE REJECT page=");
     debug_print_hex64((uint64_t)page);
     debug_print(" reason=");
@@ -114,42 +111,52 @@ static void pmm_trace_free_rejected(
     debug_print("\n");
 }
 
+
 /* ================================================================
  * Basic helpers
  * ================================================================ */
 
-static size_t page_index(phys_addr_t address)
+static size_t page_index(
+    phys_addr_t address)
 {
     return (size_t)(address / PAGE_SIZE);
 }
 
 
-static phys_addr_t page_address(size_t page)
+static phys_addr_t page_address(
+    size_t page)
 {
     return (phys_addr_t)page * PAGE_SIZE;
 }
 
 
-static uint64_t align_up_u64(uint64_t value, uint64_t alignment)
+static uint64_t align_up_u64(
+    uint64_t value,
+    uint64_t alignment)
 {
     if (alignment == 0)
         return value;
 
-    uint64_t remainder = value % alignment;
+    uint64_t remainder =
+        value % alignment;
 
     if (remainder == 0)
         return value;
 
-    return value + (alignment - remainder);
+    return value +
+           (alignment - remainder);
 }
 
 
-static uint64_t align_down_u64(uint64_t value, uint64_t alignment)
+static uint64_t align_down_u64(
+    uint64_t value,
+    uint64_t alignment)
 {
     if (alignment == 0)
         return value;
 
-    return value - (value % alignment);
+    return value -
+           (value % alignment);
 }
 
 
@@ -161,9 +168,12 @@ static void discover_usable_regions(void)
 {
     usable_region_count = 0;
 
-    size_t count = memory_map_region_count();
+    size_t count =
+        memory_map_region_count();
 
-    for (size_t i = 0; i < count; i++)
+    for (size_t i = 0;
+         i < count;
+         i++)
     {
         const memory_region_t *region =
             memory_map_region(i);
@@ -177,29 +187,31 @@ static void discover_usable_regions(void)
         if (region->length == 0)
             continue;
 
-        if (usable_region_count >= PMM_MAX_USABLE_REGIONS)
+        if (usable_region_count >=
+            PMM_MAX_USABLE_REGIONS)
             break;
 
-        usable_regions[usable_region_count++] = region;
+        usable_regions[
+            usable_region_count++
+        ] = region;
     }
 }
 
 
 /* ================================================================
  * Highest physical address
- *
- * Used ONLY to determine bitmap address coverage.
- *
- * It must NOT be used as stats.total_pages.
  * ================================================================ */
 
 static uint64_t highest_physical_end(void)
 {
     uint64_t highest = 0;
 
-    size_t count = memory_map_region_count();
+    size_t count =
+        memory_map_region_count();
 
-    for (size_t i = 0; i < count; i++)
+    for (size_t i = 0;
+         i < count;
+         i++)
     {
         const memory_region_t *region =
             memory_map_region(i);
@@ -207,8 +219,20 @@ static uint64_t highest_physical_end(void)
         if (region == NULL)
             continue;
 
+        /*
+         * Only usable memory needs to be represented
+         * by the PMM allocation bitmap.
+         *
+         * Reserved/firmware/MMIO regions can exist at
+         * very high physical addresses and should not
+         * inflate the PMM metadata size.
+         */
+        if (region->type != MEMORY_USABLE)
+            continue;
+
         uint64_t end =
-            region->base + region->length;
+            region->base +
+            region->length;
 
         if (end > highest)
             highest = end;
@@ -219,37 +243,47 @@ static uint64_t highest_physical_end(void)
 
 
 /* ================================================================
- * Bitmap sizing
+ * Bitmap / metadata sizing
  * ================================================================ */
 
 static size_t bitmap_bytes(void)
 {
-    return (bitmap_page_count + 7) / 8;
+    return (
+        bitmap_page_count + 7
+    ) / 8;
 }
 
 
 static size_t bitmap_storage_pages(void)
 {
     /*
-     * We have TWO bitmaps:
+     * PMM metadata contains:
      *
-     *   allocation_bitmap
-     *   reserved_bitmap
-     *
-     * Each requires bitmap_bytes() bytes.
+     *   allocation bitmap
+     *   reservation bitmap
+     *   uint32_t reference count per physical page
      */
 
-    uint64_t total_bytes =
+    uint64_t bitmap_total =
         (uint64_t)bitmap_bytes() * 2ULL;
 
+    uint64_t refcount_total =
+        (uint64_t)bitmap_page_count *
+        sizeof(uint32_t);
+
+    uint64_t total =
+        bitmap_total +
+        refcount_total;
+
     return (size_t)(
-        (total_bytes + PAGE_SIZE - 1) / PAGE_SIZE
+        (total + PAGE_SIZE - 1) /
+        PAGE_SIZE
     );
 }
 
 
 /* ================================================================
- * Find a usable region large enough for bitmap storage
+ * Find metadata storage region
  * ================================================================ */
 
 static const memory_region_t *
@@ -258,7 +292,8 @@ find_bitmap_region(void)
     size_t required_pages =
         bitmap_storage_pages();
 
-    const memory_region_t *best = NULL;
+    const memory_region_t *best =
+        NULL;
 
     uint64_t best_length = 0;
 
@@ -277,7 +312,8 @@ find_bitmap_region(void)
 
         uint64_t end =
             align_down_u64(
-                region->base + region->length,
+                region->base +
+                region->length,
                 PAGE_SIZE
             );
 
@@ -285,7 +321,8 @@ find_bitmap_region(void)
             continue;
 
         uint64_t pages =
-            (end - start) / PAGE_SIZE;
+            (end - start) /
+            PAGE_SIZE;
 
         if (pages < required_pages)
             continue;
@@ -293,7 +330,8 @@ find_bitmap_region(void)
         if (region->length > best_length)
         {
             best = region;
-            best_length = region->length;
+            best_length =
+                region->length;
         }
     }
 
@@ -302,7 +340,7 @@ find_bitmap_region(void)
 
 
 /* ================================================================
- * Initialize bitmaps
+ * Initialize PMM metadata
  * ================================================================ */
 
 static void initialize_bitmaps(
@@ -331,10 +369,10 @@ static void initialize_bitmaps(
     uint8_t *reserved_data =
         bitmap_buffer + bytes;
 
+    uint8_t *refcount_data =
+        reserved_data + bytes;
 
-    /*
-     * Both bitmaps use physical page indices.
-     */
+
     bitmap_init(
         &allocation_bitmap,
         allocation_data,
@@ -348,10 +386,19 @@ static void initialize_bitmaps(
     );
 
 
+    page_refcounts =
+        (uint32_t *)refcount_data;
+
+    for (size_t i = 0;
+         i < bitmap_page_count;
+         i++)
+    {
+        page_refcounts[i] = 0;
+    }
+
+
     /*
-     * Everything starts unavailable.
-     *
-     * Usable pages are explicitly released later.
+     * Initially everything is unavailable.
      */
     for (size_t i = 0;
          i < bitmap_page_count;
@@ -363,9 +410,7 @@ static void initialize_bitmaps(
         );
     }
 
-    /*
-     * No pages are allocated yet.
-     */
+
     bitmap_clear_all(
         &allocation_bitmap
     );
@@ -373,7 +418,7 @@ static void initialize_bitmaps(
 
 
 /* ================================================================
- * Check whether a physical page belongs to the memory map
+ * Check physical memory-map membership
  * ================================================================ */
 
 static bool page_in_memory_map(
@@ -403,7 +448,8 @@ static bool page_in_memory_map(
 
         uint64_t end =
             align_up_u64(
-                region->base + region->length,
+                region->base +
+                region->length,
                 PAGE_SIZE
             );
 
@@ -419,19 +465,15 @@ static bool page_in_memory_map(
 
 
 /* ================================================================
- * Release usable pages
+ * Release usable regions
  * ================================================================ */
 
 static void release_usable_regions(void)
 {
     stats.free_pages = 0;
 
-    /*
-     * Initially all actual pages are considered reserved.
-     */
     stats.reserved_pages =
         stats.total_pages;
-
 
     for (size_t i = 0;
          i < usable_region_count;
@@ -448,7 +490,8 @@ static void release_usable_regions(void)
 
         uint64_t end =
             align_down_u64(
-                region->base + region->length,
+                region->base +
+                region->length,
                 PAGE_SIZE
             );
 
@@ -464,9 +507,6 @@ static void release_usable_regions(void)
             if (index >= bitmap_page_count)
                 break;
 
-            /*
-             * A usable page is no longer reserved.
-             */
             if (bitmap_test(
                     &reserved_bitmap,
                     index))
@@ -496,9 +536,6 @@ void pmm_init(void)
         memory_map_info();
 
 
-    /*
-     * Actual physical-memory statistics.
-     */
     stats.total_memory =
         map.total_memory;
 
@@ -509,35 +546,25 @@ void pmm_init(void)
         map.reserved_memory;
 
 
-    /*
-     * IMPORTANT:
-     *
-     * total_pages represents actual memory reported by the
-     * memory map, NOT the highest physical address.
-     */
     stats.total_pages =
         (size_t)(
-            (map.total_memory + PAGE_SIZE - 1) /
+            (map.total_memory +
+             PAGE_SIZE - 1) /
             PAGE_SIZE
         );
-
 
     stats.free_pages = 0;
     stats.used_pages = 0;
     stats.reserved_pages = 0;
 
 
-    /*
-     * Determine the physical page-index range required by
-     * the bitmap.
-     */
     uint64_t physical_end =
         highest_physical_end();
 
-
     bitmap_page_count =
         (size_t)(
-            (physical_end + PAGE_SIZE - 1) /
+            (physical_end +
+             PAGE_SIZE - 1) /
             PAGE_SIZE
         );
 
@@ -554,11 +581,7 @@ void pmm_init(void)
     }
 
 
-    /*
-     * Discover all usable regions.
-     */
     discover_usable_regions();
-
 
     if (usable_region_count == 0)
     {
@@ -571,12 +594,8 @@ void pmm_init(void)
     }
 
 
-    /*
-     * Find a usable region in which the two bitmaps can live.
-     */
     const memory_region_t *bitmap_region =
         find_bitmap_region();
-
 
     if (bitmap_region == NULL)
     {
@@ -589,22 +608,15 @@ void pmm_init(void)
     }
 
 
-    /*
-     * Initialize allocation/reservation state.
-     */
     initialize_bitmaps(
         bitmap_region
     );
 
-
-    /*
-     * Release all usable physical pages.
-     */
     release_usable_regions();
 
 
     /*
-     * Page zero must never be allocated.
+     * Never allocate physical page zero.
      */
     pmm_reserve(
         0,
@@ -613,7 +625,7 @@ void pmm_init(void)
 
 
     /*
-     * Reserve the physical pages occupied by our bitmaps.
+     * Reserve PMM metadata.
      */
     uint64_t bitmap_start =
         align_up_u64(
@@ -637,7 +649,8 @@ void pmm_init(void)
  * Page state
  * ================================================================ */
 
-static bool page_is_free(size_t index)
+static bool page_is_free(
+    size_t index)
 {
     if (index >= bitmap_page_count)
         return false;
@@ -656,9 +669,6 @@ static bool page_is_free(size_t index)
 
 /* ================================================================
  * Find one free page
- *
- * Search ONLY usable regions instead of scanning the complete
- * sparse physical-address space.
  * ================================================================ */
 
 static size_t find_free_page(void)
@@ -678,7 +688,8 @@ static size_t find_free_page(void)
 
         uint64_t end =
             align_down_u64(
-                region->base + region->length,
+                region->base +
+                region->length,
                 PAGE_SIZE
             );
 
@@ -704,7 +715,7 @@ static size_t find_free_page(void)
 
 
 /* ================================================================
- * Allocate one physical page
+ * Allocate one page
  * ================================================================ */
 
 phys_addr_t pmm_alloc_page(void)
@@ -715,12 +726,12 @@ phys_addr_t pmm_alloc_page(void)
     if (page == INVALID_PAGE_INDEX)
         return 0;
 
-
     bitmap_set(
         &allocation_bitmap,
         page
     );
 
+    page_refcounts[page] = 1;
 
     if (stats.free_pages > 0)
         stats.free_pages--;
@@ -732,13 +743,12 @@ phys_addr_t pmm_alloc_page(void)
         1
     );
 
-
     return page_address(page);
 }
 
 
 /* ================================================================
- * Find contiguous free pages
+ * Find contiguous pages
  * ================================================================ */
 
 static size_t find_free_pages(
@@ -747,11 +757,6 @@ static size_t find_free_pages(
     if (count == 0)
         return INVALID_PAGE_INDEX;
 
-
-    /*
-     * A contiguous allocation must stay inside one usable
-     * memory region. This avoids crossing a reserved hole.
-     */
     for (size_t r = 0;
          r < usable_region_count;
          r++)
@@ -767,13 +772,14 @@ static size_t find_free_pages(
 
         uint64_t end =
             align_down_u64(
-                region->base + region->length,
+                region->base +
+                region->length,
                 PAGE_SIZE
             );
 
         size_t consecutive = 0;
-        size_t first = INVALID_PAGE_INDEX;
-
+        size_t first =
+            INVALID_PAGE_INDEX;
 
         for (uint64_t address = start;
              address < end;
@@ -786,7 +792,6 @@ static size_t find_free_pages(
 
             if (index >= bitmap_page_count)
                 break;
-
 
             if (page_is_free(index))
             {
@@ -811,10 +816,11 @@ static size_t find_free_pages(
 
 
 /* ================================================================
- * Allocate contiguous physical pages
+ * Allocate contiguous pages
  * ================================================================ */
 
-phys_addr_t pmm_alloc_pages(size_t count)
+phys_addr_t pmm_alloc_pages(
+    size_t count)
 {
     if (count == 0)
         return 0;
@@ -822,28 +828,28 @@ phys_addr_t pmm_alloc_pages(size_t count)
     if (count > stats.free_pages)
         return 0;
 
-
     size_t first =
         find_free_pages(count);
 
-
     if (first == INVALID_PAGE_INDEX)
         return 0;
-
 
     for (size_t i = 0;
          i < count;
          i++)
     {
+        size_t index =
+            first + i;
+
         bitmap_set(
             &allocation_bitmap,
-            first + i
+            index
         );
+
+        page_refcounts[index] = 1;
     }
 
-
     stats.used_pages += count;
-
     stats.free_pages -= count;
 
     pmm_trace_alloc(
@@ -856,72 +862,165 @@ phys_addr_t pmm_alloc_pages(size_t count)
 
 
 /* ================================================================
- * Free one physical page
+ * Reference counting
  * ================================================================ */
 
-void pmm_free_page(phys_addr_t page)
+void pmm_retain_page(
+    phys_addr_t page)
 {
-    /*
-     * Physical addresses must be page aligned.
-     */
     if ((page & (PAGE_SIZE - 1)) != 0)
-    {
-        pmm_trace_free_rejected(page, "unaligned");
         return;
-    }
-
 
     size_t index =
         page_index(page);
 
+    if (index == 0 ||
+        index >= bitmap_page_count)
+        return;
+
+    if (!bitmap_test(
+            &allocation_bitmap,
+            index))
+        return;
+
+    if (page_refcounts[index] ==
+        UINT32_MAX)
+        return;
+
+    page_refcounts[index]++;
+}
+
+
+uint32_t pmm_page_refcount(
+    phys_addr_t page)
+{
+    if ((page & (PAGE_SIZE - 1)) != 0)
+        return 0;
+
+    size_t index =
+        page_index(page);
+
+    if (index >= bitmap_page_count)
+        return 0;
+
+    return page_refcounts[index];
+}
+
+
+void pmm_release_page(
+    phys_addr_t page)
+{
+    if ((page & (PAGE_SIZE - 1)) != 0)
+        return;
+
+    size_t index =
+        page_index(page);
+
+    if (index == 0 ||
+        index >= bitmap_page_count)
+        return;
+
+    if (!bitmap_test(
+            &allocation_bitmap,
+            index))
+        return;
+
+    if (page_refcounts[index] == 0)
+        return;
+
+    page_refcounts[index]--;
+
+    /*
+     * Only the final reference actually
+     * returns the page to the free pool.
+     */
+    if (page_refcounts[index] == 0)
+    {
+        pmm_free_page(page);
+    }
+}
+
+
+/* ================================================================
+ * Free one page
+ * ================================================================ */
+
+void pmm_free_page(
+    phys_addr_t page)
+{
+    if ((page & (PAGE_SIZE - 1)) != 0)
+    {
+        pmm_trace_free_rejected(
+            page,
+            "unaligned"
+        );
+        return;
+    }
+
+    size_t index =
+        page_index(page);
 
     if (index == 0)
     {
-        pmm_trace_free_rejected(page, "page-zero");
+        pmm_trace_free_rejected(
+            page,
+            "page-zero"
+        );
         return;
     }
-
 
     if (index >= bitmap_page_count)
     {
-        pmm_trace_free_rejected(page, "out-of-bitmap");
+        pmm_trace_free_rejected(
+            page,
+            "out-of-bitmap"
+        );
         return;
     }
 
-
-    /*
-     * Only pages allocated by pmm_alloc_page(s) can be freed.
-     */
     if (!bitmap_test(
             &allocation_bitmap,
             index))
     {
-        pmm_trace_free_rejected(page, "not-allocated");
+        pmm_trace_free_rejected(
+            page,
+            "not-allocated"
+        );
         return;
     }
 
-
-    /*
-     * Never free a reserved page.
-     *
-     * This should normally be impossible because reserved
-     * pages are never allocated, but keeping the check here
-     * makes the PMM safer.
-     */
     if (bitmap_test(
             &reserved_bitmap,
             index))
     {
-        pmm_trace_free_rejected(page, "reserved");
+        pmm_trace_free_rejected(
+            page,
+            "reserved"
+        );
         return;
     }
 
+    /*
+     * Direct pmm_free_page() is only valid for an
+     * exclusively owned page.
+     *
+     * Shared pages must use pmm_release_page().
+     */
+    if (page_refcounts[index] > 1)
+    {
+        pmm_trace_free_rejected(
+            page,
+            "shared-page"
+        );
+        return;
+    }
 
     bitmap_clear(
         &allocation_bitmap,
         index
     );
 
+    page_refcounts[index] = 0;
 
     if (stats.used_pages > 0)
         stats.used_pages--;
@@ -933,7 +1032,7 @@ void pmm_free_page(phys_addr_t page)
 
 
 /* ================================================================
- * Free contiguous physical pages
+ * Free contiguous pages
  * ================================================================ */
 
 void pmm_free_pages(
@@ -943,18 +1042,14 @@ void pmm_free_pages(
     if (count == 0)
         return;
 
-
     if ((page & (PAGE_SIZE - 1)) != 0)
         return;
-
 
     size_t first =
         page_index(page);
 
-
     if (first >= bitmap_page_count)
         return;
-
 
     for (size_t i = 0;
          i < count;
@@ -966,7 +1061,7 @@ void pmm_free_pages(
         if (index >= bitmap_page_count)
             break;
 
-        pmm_free_page(
+        pmm_release_page(
             page_address(index)
         );
     }
@@ -984,18 +1079,14 @@ void pmm_reserve(
     if (pages == 0)
         return;
 
-
     if ((address & (PAGE_SIZE - 1)) != 0)
         return;
-
 
     size_t first =
         page_index(address);
 
-
     if (first >= bitmap_page_count)
         return;
-
 
     for (size_t i = 0;
          i < pages;
@@ -1004,14 +1095,9 @@ void pmm_reserve(
         size_t index =
             first + i;
 
-
         if (index >= bitmap_page_count)
             break;
 
-
-        /*
-         * Do not reserve an allocated page.
-         */
         if (bitmap_test(
                 &allocation_bitmap,
                 index))
@@ -1019,10 +1105,6 @@ void pmm_reserve(
             continue;
         }
 
-
-        /*
-         * Already reserved.
-         */
         if (bitmap_test(
                 &reserved_bitmap,
                 index))
@@ -1030,17 +1112,11 @@ void pmm_reserve(
             continue;
         }
 
-
         bitmap_set(
             &reserved_bitmap,
             index
         );
 
-
-        /*
-         * Only an actually free page contributes to
-         * the free/reserved statistics.
-         */
         if (stats.free_pages > 0)
             stats.free_pages--;
 
@@ -1060,18 +1136,14 @@ void pmm_unreserve(
     if (pages == 0)
         return;
 
-
     if ((address & (PAGE_SIZE - 1)) != 0)
         return;
-
 
     size_t first =
         page_index(address);
 
-
     if (first >= bitmap_page_count)
         return;
-
 
     for (size_t i = 0;
          i < pages;
@@ -1080,18 +1152,12 @@ void pmm_unreserve(
         size_t index =
             first + i;
 
-
         if (index == 0)
             continue;
-
 
         if (index >= bitmap_page_count)
             break;
 
-
-        /*
-         * An allocated page cannot be unreserved.
-         */
         if (bitmap_test(
                 &allocation_bitmap,
                 index))
@@ -1099,14 +1165,8 @@ void pmm_unreserve(
             continue;
         }
 
-
-        /*
-         * Only unreserve pages which are actually part
-         * of the physical memory map.
-         */
         if (!page_in_memory_map(index))
             continue;
-
 
         if (!bitmap_test(
                 &reserved_bitmap,
@@ -1115,12 +1175,10 @@ void pmm_unreserve(
             continue;
         }
 
-
         bitmap_clear(
             &reserved_bitmap,
             index
         );
-
 
         if (stats.reserved_pages > 0)
             stats.reserved_pages--;

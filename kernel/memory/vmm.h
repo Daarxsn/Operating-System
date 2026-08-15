@@ -21,6 +21,7 @@ typedef enum
     VMM_DIRTY    = 1ULL << 6,
     VMM_HUGE     = 1ULL << 7,
     VMM_GLOBAL   = 1ULL << 8,
+    VMM_COW      = 1ULL << 9,
     VMM_NX       = 1ULL << 63
 
 } vmm_flags_t;
@@ -58,18 +59,32 @@ bool vmm_unmap_page(
     address_space_t* space,
     uintptr_t virtual_addr);
 
-    bool vmm_protect_page(
+bool vmm_protect_page(
     address_space_t* space,
     uintptr_t virtual_addr,
     uint64_t flags);
 
-    uint64_t vmm_get_page_flags(
+uint64_t vmm_get_page_flags(
     address_space_t* space,
     uintptr_t virtual_addr);
 
 phys_addr_t vmm_translate(
     address_space_t* space,
     uintptr_t virtual_addr);
+
+/* --------------------------------------------------
+   Demand Paging
+-------------------------------------------------- */
+
+bool vmm_register_demand_page(
+    address_space_t* space,
+    uintptr_t virtual_addr,
+    uint64_t flags);
+
+bool vmm_handle_page_fault(
+    address_space_t* space,
+    uintptr_t virtual_addr,
+    uint64_t error_code);
 
 /* --------------------------------------------------
    Address Spaces

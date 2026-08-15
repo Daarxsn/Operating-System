@@ -6,10 +6,25 @@
 #include "../debug/panic.h"
 #include "../debug/print.h"
 #include "../debug/hex.h"
+#include "../memory/vmm.h"
 
 void page_fault_handler(registers_t *regs)
 {
     uintptr_t fault_address = cpu_read_cr2();
+
+    /*
+     * Attempt demand-page recovery first.
+     *
+     * Only explicitly registered demand pages are handled.
+     * Any other page fault remains a fatal kernel fault.
+     */
+    if (vmm_handle_page_fault(
+        vmm_kernel_space(),
+        fault_address,
+        regs->error_code))
+{
+    return;
+}
 
     klog_fatal("PAGE FAULT");
 

@@ -7,17 +7,18 @@
 /*
  * XyrisOS Physical Memory Manager
  *
- * All addresses handled here are
- * physical addresses.
+ * All addresses handled here are physical addresses.
  */
 
 #define PAGE_SIZE 4096
 
 typedef uintptr_t phys_addr_t;
 
-/*
- * Physical memory statistics.
- */
+
+/* ================================================================
+ * Statistics
+ * ================================================================ */
+
 typedef struct
 {
     uint64_t total_memory;
@@ -31,73 +32,91 @@ typedef struct
 
 } pmm_stats_t;
 
-/*
- * Initialize the PMM.
- *
- * Requires memory_map_init()
- * to have already completed.
- */
+
+/* ================================================================
+ * Initialization
+ * ================================================================ */
+
 void pmm_init(void);
 
-/*
- * Allocate one physical page.
+
+/* ================================================================
+ * Allocation
+ * ================================================================ */
+
+phys_addr_t pmm_alloc_page(void);
+
+phys_addr_t pmm_alloc_pages(
+    size_t count
+);
+
+
+/* ================================================================
+ * Reference counting
  *
- * Returns 0 on failure.
- */
-phys_addr_t
-pmm_alloc_page(void);
+ * Used by shared mappings and COW.
+ * ================================================================ */
 
 /*
- * Allocate contiguous pages.
+ * Add one reference to an allocated physical page.
+ */
+void pmm_retain_page(
+    phys_addr_t page
+);
+
+
+/*
+ * Release one reference.
  *
- * Returns the first physical page.
+ * The page is returned to the free pool when
+ * its final reference disappears.
  */
-phys_addr_t
-pmm_alloc_pages(size_t count);
+void pmm_release_page(
+    phys_addr_t page
+);
+
 
 /*
- * Free one page.
+ * Get current reference count.
  */
-void
-pmm_free_page(phys_addr_t page);
+uint32_t pmm_page_refcount(
+    phys_addr_t page
+);
 
-/*
- * Free contiguous pages.
- */
-void
-pmm_free_pages(
+
+/* ================================================================
+ * Free
+ * ================================================================ */
+
+void pmm_free_page(
+    phys_addr_t page
+);
+
+void pmm_free_pages(
     phys_addr_t page,
     size_t count
 );
 
-/*
- * Reserve physical pages.
- *
- * Used for:
- * - kernel image
- * - bootloader
- * - framebuffer
- * - ACPI
- */
-void
-pmm_reserve(
+
+/* ================================================================
+ * Reservation
+ * ================================================================ */
+
+void pmm_reserve(
     phys_addr_t address,
     size_t pages
 );
 
-/*
- * Release reserved pages.
- */
-void
-pmm_unreserve(
+void pmm_unreserve(
     phys_addr_t address,
     size_t pages
 );
 
-/*
- * Statistics.
- */
-pmm_stats_t
-pmm_get_stats(void);
+
+/* ================================================================
+ * Statistics
+ * ================================================================ */
+
+pmm_stats_t pmm_get_stats(void);
 
 #endif
