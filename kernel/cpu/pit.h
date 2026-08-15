@@ -15,6 +15,9 @@ void pit_handler(void);
 /* Tick counter */
 uint64_t pit_get_ticks(void);
 
+/* Debug function to get handler count */
+uint64_t pit_debug_get_handler_count(void);
+
 /* Millisecond delay (busy wait) */
 void pit_sleep(uint64_t milliseconds);
 

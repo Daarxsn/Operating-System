@@ -91,3 +91,14 @@ void pic_unmask_irq(uint8_t irq)
     value &= ~(1 << irq);
     outb(port, value);
 }
+
+uint8_t pic_debug_get_master_mask(void)
+{
+    return inb(PIC1_DATA);
+}
+
+uint8_t pic_debug_get_master_irr(void)
+{
+    outb(PIC1_COMMAND, 0x0A);
+    return inb(PIC1_COMMAND);
+}

@@ -8,6 +8,7 @@
 static scheduler_t scheduler;
 static context_t bootstrap_context;
 static bool reschedule_pending = false;
+static volatile uint64_t scheduler_debug_tick_count = 0;
 
 static void scheduler_wake_sleeping(void)
 {
@@ -44,6 +45,7 @@ void scheduler_start(void) { scheduler_schedule(); }
 
 void scheduler_tick(void)
 {
+    scheduler_debug_tick_count++;
     scheduler.ticks++;
     scheduler_wake_sleeping();
     thread_t *current = scheduler.current;
@@ -51,6 +53,11 @@ void scheduler_tick(void)
     current->cpu_time++;
     current->time_slice++;
     if (current->time_slice >= scheduler.time_slice) reschedule_pending = true;
+}
+
+uint64_t scheduler_debug_get_tick_count(void)
+{
+    return scheduler_debug_tick_count;
 }
 
 bool scheduler_preemption_pending(void) { return reschedule_pending; }

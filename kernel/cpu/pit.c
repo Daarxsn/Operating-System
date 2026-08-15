@@ -5,6 +5,7 @@
 #include "../include/foundation/time.h"
 
 static volatile uint64_t pit_ticks = 0;
+static volatile uint64_t pit_debug_handler_count = 0;
 static uint32_t pit_frequency = 100;
 
 #define PIT_CHANNEL0 0x40
@@ -40,6 +41,7 @@ void pit_initialize(uint32_t frequency)
 
 void pit_handler(void)
 {
+    pit_debug_handler_count++;
     pit_ticks++;
 
     xk_time_tick();
@@ -63,4 +65,9 @@ void pit_sleep(uint64_t milliseconds)
     {
         __asm__ volatile ("pause");
     }
+}
+
+uint64_t pit_debug_get_handler_count(void)
+{
+    return pit_debug_handler_count;
 }

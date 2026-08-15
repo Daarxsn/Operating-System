@@ -1,0 +1,60 @@
+==========================================
+        XyrisOS Build System
+==========================================
+
+[1/2] Configuring XyrisOS...
+Using dedicated x86_64 toolchain.
+-- Configuring done (0.9s)
+-- Generating done (0.6s)
+-- Build files have been written to: /mnt/d/College/Projects/XyrisOS/Operating-System/build
+
+[2/2] Building XyrisOS...
+[1/21] Building C object CMakeFiles/kernel.elf.dir/kernel/cpu/cpu.c.obj
+[2/21] Building C object CMakeFiles/kernel.elf.dir/kernel/cpu/irq.c.obj
+[3/21] Building C object CMakeFiles/kernel.elf.dir/kernel/debug/hex.c.obj
+[4/21] Building C object CMakeFiles/kernel.elf.dir/kernel/boot/boot.c.obj
+[5/21] Building C object CMakeFiles/kernel.elf.dir/kernel/cpu/pit.c.obj
+[6/21] Building C object CMakeFiles/kernel.elf.dir/kernel/debug/panic.c.obj
+[7/21] Building C object CMakeFiles/kernel.elf.dir/kernel/debug/print.c.obj
+[8/21] Building C object CMakeFiles/kernel.elf.dir/kernel/drivers/driver.c.obj
+[9/21] Building C object CMakeFiles/kernel.elf.dir/kernel/drivers/keyboard.c.obj
+[10/21] Building C object CMakeFiles/kernel.elf.dir/kernel/drivers/mouse.c.obj
+[11/21] Building C object CMakeFiles/kernel.elf.dir/kernel/drivers/serial.c.obj
+[12/21] Building C object CMakeFiles/kernel.elf.dir/kernel/drivers/pci.c.obj
+[13/21] Building C object CMakeFiles/kernel.elf.dir/kernel/process/process.c.obj
+[14/21] Building C object CMakeFiles/kernel.elf.dir/kernel/process/thread.c.obj
+[15/21] Building C object CMakeFiles/kernel.elf.dir/kernel/process/queue.c.obj
+[16/21] Building C object CMakeFiles/kernel.elf.dir/kernel/process/scheduler.c.obj
+[17/21] Building C object CMakeFiles/kernel.elf.dir/kernel/process/context.c.obj
+[18/21] Building ASM object CMakeFiles/kernel.elf.dir/kernel/process/switch.S.obj
+[19/21] Building C object CMakeFiles/kernel.elf.dir/kernel/process/idle.c.obj
+[20/21] Building C object CMakeFiles/kernel.elf.dir/kernel/core/kernel.c.obj
+FAILED: CMakeFiles/kernel.elf.dir/kernel/core/kernel.c.obj 
+/usr/bin/gcc  -I/mnt/d/College/Projects/XyrisOS/Operating-System/kernel -I/mnt/d/College/Projects/XyrisOS/Operating-System/kernel/include -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pic -fno-pie -ffunction-sections -fdata-sections -m64 -march=x86-64 -mabi=sysv -mno-80387 -mno-mmx -mno-sse -mno-sse2 -mno-red-zone -mcmodel=kernel -Wall -Wextra -Werror -std=gnu2x -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pic -fno-pie -ffunction-sections -fdata-sections -m64 -march=x86-64 -mabi=sysv -mno-80387 -mno-mmx -mno-sse -mno-sse2 -mno-red-zone -mcmodel=kernel -Wall -Wextra -Werror -MD -MT CMakeFiles/kernel.elf.dir/kernel/core/kernel.c.obj -MF CMakeFiles/kernel.elf.dir/kernel/core/kernel.c.obj.d -o CMakeFiles/kernel.elf.dir/kernel/core/kernel.c.obj -c /mnt/d/College/Projects/XyrisOS/Operating-System/kernel/core/kernel.c
+/mnt/d/College/Projects/XyrisOS/Operating-System/kernel/core/kernel.c: In function ‘kernel_initialize_graphics’:
+/mnt/d/College/Projects/XyrisOS/Operating-System/kernel/core/kernel.c:255:5: error: implicit declaration of function ‘kernel_debug_mp’; did you mean ‘kernel_diag_mp’? [-Werror=implicit-function-declaration]
+  255 |     kernel_debug_mp();
+      |     ^~~~~~~~~~~~~~~
+      |     kernel_diag_mp
+/mnt/d/College/Projects/XyrisOS/Operating-System/kernel/core/kernel.c: In function ‘preemption_test_a’:
+/mnt/d/College/Projects/XyrisOS/Operating-System/kernel/core/kernel.c:562:27: error: implicit declaration of function ‘irq0_debug_get_count’ [-Werror=implicit-function-declaration]
+  562 |     uint64_t start_irq0 = irq0_debug_get_count();
+      |                           ^~~~~~~~~~~~~~~~~~~~
+/mnt/d/College/Projects/XyrisOS/Operating-System/kernel/core/kernel.c:563:35: error: implicit declaration of function ‘pit_debug_get_handler_count’ [-Werror=implicit-function-declaration]
+  563 |     uint64_t start_pit_handlers = pit_debug_get_handler_count();
+      |                                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/d/College/Projects/XyrisOS/Operating-System/kernel/core/kernel.c:564:38: error: implicit declaration of function ‘scheduler_debug_get_tick_count’ [-Werror=implicit-function-declaration]
+  564 |     uint64_t start_scheduler_ticks = scheduler_debug_get_tick_count();
+      |                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/d/College/Projects/XyrisOS/Operating-System/kernel/core/kernel.c:574:24: error: implicit declaration of function ‘pic_debug_get_master_mask’ [-Werror=implicit-function-declaration]
+  574 |     uint8_t pic_mask = pic_debug_get_master_mask();
+      |                        ^~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/d/College/Projects/XyrisOS/Operating-System/kernel/core/kernel.c:575:23: error: implicit declaration of function ‘pic_debug_get_master_irr’ [-Werror=implicit-function-declaration]
+  575 |     uint8_t pic_irr = pic_debug_get_master_irr();
+      |                       ^~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/d/College/Projects/XyrisOS/Operating-System/kernel/core/kernel.c: At top level:
+/mnt/d/College/Projects/XyrisOS/Operating-System/kernel/core/kernel.c:197:13: error: ‘kernel_dump_mp_info’ defined but not used [-Werror=unused-function]
+  197 | static void kernel_dump_mp_info(void)
+      |             ^~~~~~~~~~~~~~~~~~~
+cc1: all warnings being treated as errors
+ninja: build stopped: subcommand failed.

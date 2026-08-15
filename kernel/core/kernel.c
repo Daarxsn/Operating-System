@@ -252,7 +252,7 @@ static void kernel_initialize_graphics(
     boot_header();
 
     kernel_diag_mp();
-    kernel_debug_mp();
+    kernel_dump_mp_info();
 
     boot_step_ok("Framebuffer Initialized");
     boot_step_ok("Graphics Engine Initialized");
