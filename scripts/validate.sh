@@ -66,6 +66,7 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
         "User Test: Address Space Cleanup"
         "THREAD A FINISHED"
         "THREAD B FINISHED"
+        "Preemption Test: PASS"
     )
 
     QEMU_STATUS=FAIL
@@ -113,7 +114,8 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
        grep -q "Syscall Test: Close" "$QEMU_LOG" && \
        grep -q "User Test: Address Space Cleanup" "$QEMU_LOG" && \
        grep -q "THREAD A FINISHED" "$QEMU_LOG" && \
-       grep -q "THREAD B FINISHED" "$QEMU_LOG"; then
+       grep -q "THREAD B FINISHED" "$QEMU_LOG" && \
+       grep -q "Preemption Test: PASS" "$QEMU_LOG"; then
         echo "PASS: QEMU boot, kernel tests, user cleanup, and scheduler completion markers detected."
         QEMU_STATUS=PASS
     else

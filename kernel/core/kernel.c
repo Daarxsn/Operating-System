@@ -19,6 +19,7 @@
 #include "cpu/isr.h"
 #include "cpu/pic.h"
 #include "cpu/pit.h"
+#include "cpu/irq.h"
 
 #include "memory/memory_map.h"
 #include "memory/hhdm.h"
@@ -64,6 +65,14 @@
 
 static void thread_a(void);
 static void thread_b(void);
+static void preemption_test_a(void);
+static void preemption_test_b(void);
+
+/* Shared state for the timer-preemption runtime test.  The test threads
+ * deliberately never call scheduler_yield().  Thread A waits for B to run;
+ * B can only run before A finishes if timer-driven preemption is working. */
+static volatile bool preemption_test_b_started = false;
+static volatile bool preemption_test_a_passed = false;
 
 /* -------------------------------------------------
    Limine Requests
@@ -79,6 +88,14 @@ static volatile struct limine_framebuffer_request framebuffer_request =
 {
     .id = LIMINE_FRAMEBUFFER_REQUEST_ID,
     .revision = 0
+};
+
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_mp_request mp_request =
+{
+    .id = LIMINE_MP_REQUEST_ID,
+    .revision = 0,
+    .flags = 0
 };
 
 
@@ -109,6 +126,60 @@ static void kernel_idle(void)
    Boot Verification
 ------------------------------------------------- */
 
+static void kernel_diag_mp(void)
+{
+    debug_print_line("");
+    debug_print_line("========== MP / LAPIC DIAGNOSTIC ==========");
+
+    if (mp_request.response == NULL)
+    {
+        debug_print_line("MP Response: NULL");
+        debug_print_line("Limine did not provide an MP response.");
+        debug_print_line("===========================================");
+        return;
+    }
+
+    struct limine_mp_response *mp = mp_request.response;
+
+    debug_print_line("MP Response: OK");
+
+    debug_print("CPU Count: ");
+    debug_print_hex64(mp->cpu_count);
+    debug_print_line("");
+
+    debug_print("BSP LAPIC ID: ");
+    debug_print_hex64(mp->bsp_lapic_id);
+    debug_print_line("");
+
+    debug_print("MP Flags: ");
+    debug_print_hex64(mp->flags);
+    debug_print_line("");
+
+    debug_print("X2APIC: ");
+    if (mp->flags & LIMINE_MP_RESPONSE_X86_64_X2APIC)
+        debug_print_line("YES");
+    else
+        debug_print_line("NO");
+
+    for (uint64_t i = 0; i < mp->cpu_count; i++)
+    {
+        struct limine_mp_info *cpu = mp->cpus[i];
+
+        debug_print("CPU ");
+        debug_print_hex64(i);
+
+        debug_print(" processor_id=");
+        debug_print_hex64(cpu->processor_id);
+
+        debug_print(" lapic_id=");
+        debug_print_hex64(cpu->lapic_id);
+
+        debug_print_line("");
+    }
+
+    debug_print_line("===========================================");
+}
+
 static struct limine_framebuffer *kernel_verify_bootloader(void)
 {
     if (!LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision))
@@ -121,6 +192,45 @@ static struct limine_framebuffer *kernel_verify_bootloader(void)
         kernel_idle();
 
     return framebuffer_request.response->framebuffers[0];
+}
+
+static void kernel_dump_mp_info(void)
+{
+    if (mp_request.response == NULL)
+    {
+        debug_print_line("MP: No response from Limine");
+        return;
+    }
+
+    struct limine_mp_response *mp = mp_request.response;
+
+    debug_print("MP: CPU count = ");
+    debug_print_hex64(mp->cpu_count);
+    debug_print_line("");
+
+    debug_print("MP: BSP LAPIC ID = ");
+    debug_print_hex64(mp->bsp_lapic_id);
+    debug_print_line("");
+
+    debug_print("MP: Flags = ");
+    debug_print_hex64(mp->flags);
+    debug_print_line("");
+
+    for (uint64_t i = 0; i < mp->cpu_count; i++)
+    {
+        struct limine_mp_info *cpu = mp->cpus[i];
+
+        debug_print("MP: CPU ");
+        debug_print_hex64(i);
+
+        debug_print(" processor=");
+        debug_print_hex64(cpu->processor_id);
+
+        debug_print(" LAPIC=");
+        debug_print_hex64(cpu->lapic_id);
+
+        debug_print_line("");
+    }
 }
 
 
@@ -140,6 +250,9 @@ static void kernel_initialize_graphics(
 
     boot_init();
     boot_header();
+
+    kernel_diag_mp();
+    kernel_debug_mp();
 
     boot_step_ok("Framebuffer Initialized");
     boot_step_ok("Graphics Engine Initialized");
@@ -407,13 +520,7 @@ static void kernel_initialize_execution(void)
    Test Threads
 ------------------------------------------------- */
 
-/*
- * Cooperative scheduler test thread A.
- *
- * The thread voluntarily yields the CPU, allowing
- * the round-robin scheduler to select another
- * runnable thread.
- */
+/* Cooperative scheduler test thread A. */
 static void thread_a(void)
 {
     for (int i = 0; i < 10; i++)
@@ -425,11 +532,7 @@ static void thread_a(void)
     debug_print("THREAD A FINISHED\n");
 }
 
-
-
-/*
- * Cooperative scheduler test thread B.
- */
+/* Cooperative scheduler test thread B. */
 static void thread_b(void)
 {
     for (int i = 0; i < 10; i++)
@@ -439,6 +542,129 @@ static void thread_b(void)
     }
 
     debug_print("THREAD B FINISHED\n");
+}
+
+/*
+ * Timer-preemption test thread A.
+ *
+ * No scheduler_yield() is used here.  A deliberately waits for B to set
+ * preemption_test_b_started.  If timer-driven preemption works, A will be
+ * interrupted after its time slice and B will run.  If preemption does not
+ * work, A eventually times out and reports failure instead of hanging the
+ * kernel forever.
+ */
+static void preemption_test_a(void)
+{
+    const uint64_t max_wait_ticks = 30;
+    const uint64_t cpu_guard = 100000000ULL;
+
+    uint64_t start_pit_ticks = pit_get_ticks();
+    uint64_t start_irq0 = irq0_debug_get_count();
+    uint64_t start_pit_handlers = pit_debug_get_handler_count();
+    uint64_t start_scheduler_ticks = scheduler_debug_get_tick_count();
+    uint64_t start_rflags = 0;
+
+    __asm__ volatile("pushfq; popq %0" : "=r"(start_rflags));
+
+    debug_print("Preemption Test: RFLAGS = ");
+    debug_print_hex64(start_rflags);
+    debug_print(" IF = ");
+    debug_print((start_rflags & (1ULL << 9)) ? "1\\n" : "0\\n");
+
+    uint8_t pic_mask = pic_debug_get_master_mask();
+    uint8_t pic_irr = pic_debug_get_master_irr();
+
+    debug_print("Preemption Test: PIC Master Mask = ");
+    debug_print_hex64((uint64_t)pic_mask);
+    debug_print(" IRQ0 Masked = ");
+    debug_print((pic_mask & 0x01) ? "1\\n" : "0\\n");
+
+    debug_print("Preemption Test: PIC Master IRR = ");
+    debug_print_hex64((uint64_t)pic_irr);
+    debug_print(" IRQ0 Pending = ");
+    debug_print((pic_irr & 0x01) ? "1\\n" : "0\\n");
+
+    debug_print("PREEMPTION TEST A START\\n");
+
+    /* Diagnostic: invoke the IRQ0 vector as a software interrupt. */
+    uint64_t software_irq0_before = irq0_debug_get_count();
+    __asm__ volatile("int $32" : : : "memory");
+    uint64_t software_irq0_after = irq0_debug_get_count();
+
+    debug_print("Preemption Test: Software INT32 Delta = ");
+    debug_print_hex64(software_irq0_after - software_irq0_before);
+    debug_print("\\n");
+
+    if ((software_irq0_after - software_irq0_before) == 0)
+    {
+        boot_step_fail("Preemption Test: Software INT32 Did Not Reach irq_dispatch");
+        return;
+    }
+
+    for (uint64_t i = 0; i < cpu_guard; ++i)
+    {
+        if (preemption_test_b_started)
+        {
+            preemption_test_a_passed = true;
+            debug_print("Preemption Test: PASS\\n");
+            return;
+        }
+
+        if ((pit_get_ticks() - start_pit_ticks) >= max_wait_ticks)
+            break;
+
+        __asm__ volatile("pause");
+    }
+
+    uint64_t irq0_delta =
+        irq0_debug_get_count() - start_irq0;
+    uint64_t pit_handler_delta =
+        pit_debug_get_handler_count() - start_pit_handlers;
+    uint64_t scheduler_tick_delta =
+        scheduler_debug_get_tick_count() - start_scheduler_ticks;
+
+    uint8_t end_pic_irr = pic_debug_get_master_irr();
+    debug_print("Preemption Test: Final PIC Master IRR = ");
+    debug_print_hex64((uint64_t)end_pic_irr);
+    debug_print(" IRQ0 Pending = ");
+    debug_print((end_pic_irr & 0x01) ? "1\\n" : "0\\n");
+
+    if ((start_rflags & (1ULL << 9)) == 0)
+    {
+        boot_step_fail("Preemption Test: Interrupt Flag IF Is Disabled");
+    }
+    else if (irq0_delta == 0)
+    {
+        boot_step_fail("Preemption Test: IRQ0 Did Not Enter irq_dispatch");
+    }
+    else if (pit_handler_delta == 0)
+    {
+        boot_step_fail("Preemption Test: IRQ0 Entered, But PIT Handler Did Not Run");
+    }
+    else if (scheduler_tick_delta == 0)
+    {
+        boot_step_fail("Preemption Test: PIT Handler Ran, But scheduler_tick Did Not Run");
+    }
+    else
+    {
+        boot_step_fail("Preemption Test: IRQ0/PIT/Scheduler Ran, But Thread B Did Not Run");
+    }
+}
+
+/*
+ * Timer-preemption test thread B.  It does not yield; reaching this function
+ * before A finishes proves that the timer forced a context switch.
+ */
+static void preemption_test_b(void)
+{
+    debug_print("PREEMPTION TEST B START\\n");
+    preemption_test_b_started = true;
+
+    for (volatile uint64_t i = 0; i < 1000000ULL; ++i)
+        __asm__ volatile("pause");
+
+    if (preemption_test_a_passed)
+        debug_print("Preemption Test: A Observed B\\n");
 }
 
 /* -------------------------------------------------
@@ -678,6 +904,55 @@ else
 
     boot_step_ok(
         "Scheduler Test Thread B Created"
+    );
+}
+
+
+thread_t *preemption_test_a_handle =
+    thread_create(
+        kernel_process,
+        preemption_test_a,
+        THREAD_PRIORITY_NORMAL
+    );
+
+if (preemption_test_a_handle == NULL)
+{
+    boot_step_fail(
+        "Failed To Create Preemption Test Thread A"
+    );
+}
+else
+{
+    scheduler_add_thread(
+        preemption_test_a_handle
+    );
+
+    boot_step_ok(
+        "Preemption Test Thread A Created"
+    );
+}
+
+thread_t *preemption_test_b_handle =
+    thread_create(
+        kernel_process,
+        preemption_test_b,
+        THREAD_PRIORITY_NORMAL
+    );
+
+if (preemption_test_b_handle == NULL)
+{
+    boot_step_fail(
+        "Failed To Create Preemption Test Thread B"
+    );
+}
+else
+{
+    scheduler_add_thread(
+        preemption_test_b_handle
+    );
+
+    boot_step_ok(
+        "Preemption Test Thread B Created"
     );
 }
 
