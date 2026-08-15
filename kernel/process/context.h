@@ -19,7 +19,7 @@
  *  40  = R14
  *  48  = R15
  *  56  = RIP
- *  64  = RFLAGS
+ *  64  = RFLAGS (saved IF state; switch.S restores IF only)
  *
  * Total size = 72 bytes.
  * ============================================================

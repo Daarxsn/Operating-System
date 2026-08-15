@@ -322,6 +322,36 @@ static void kernel_initialize_interrupts(void)
     boot_step_ok(
         "CPU Interrupts Enabled"
     );
+
+    debug_print_line("========== IRQ0 DIAGNOSTIC ==========");
+
+    uint64_t irq0_before = irq0_debug_get_count();
+
+    /* Wait until at least one hardware IRQ0 arrives, or until timeout. */
+    uint64_t timeout = 50000000ULL;
+
+    while (irq0_debug_get_count() == irq0_before && timeout--)
+    {
+        __asm__ volatile ("pause");
+    }
+
+    debug_print("IRQ0 count = ");
+    debug_print_hex64(irq0_debug_get_count());
+    debug_print_line("");
+
+    debug_print("PIT handler count = ");
+    debug_print_hex64(pit_debug_get_handler_count());
+    debug_print_line("");
+
+    debug_print("PIT ticks = ");
+    debug_print_hex64(pit_get_ticks());
+    debug_print_line("");
+
+    debug_print("Scheduler ticks = ");
+    debug_print_hex64(scheduler_debug_get_tick_count());
+    debug_print_line("");
+
+    debug_print_line("======================================");
 }
 
 

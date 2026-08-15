@@ -1,11 +1,14 @@
 #include "isr.h"
 #include "exceptions.h"
 #include "irq.h"
-
+#include <stddef.h>
 #include "../syscall/syscall_isr.h"
 
 void isr_handler(registers_t *regs)
 {
+    if (regs == NULL)
+        return;
+
     if (regs->vector < 32)
     {
         exception_dispatch(regs);

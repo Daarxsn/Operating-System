@@ -1,6 +1,8 @@
 #include "pit.h"
 #include "io.h"
 
+#include "../debug/print.h"
+
 #include "../process/scheduler.h"
 #include "../include/foundation/time.h"
 
@@ -37,6 +39,8 @@ void pit_initialize(uint32_t frequency)
         PIT_CHANNEL0,
         divisor >> 8
     );
+
+    debug_print_line("PIT: hardware initialized");
 }
 
 void pit_handler(void)
