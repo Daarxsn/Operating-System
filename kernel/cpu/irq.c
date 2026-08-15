@@ -8,6 +8,8 @@
 
 static irq_handler_t irq_handlers[XK_IRQ_COUNT];
 
+static volatile uint64_t irq0_debug_count = 0;
+
 bool xk_irq_register(uint8_t irq, irq_handler_t handler)
 {
     if (irq >= XK_IRQ_COUNT) return false;
@@ -29,7 +31,10 @@ void irq_dispatch(registers_t *regs)
     uint8_t irq = (uint8_t)(regs->vector - 32);
 
     if (irq == 0)
+    {
+        irq0_debug_count++;
         pit_handler();
+    }
 
     if (irq < XK_IRQ_COUNT && irq_handlers[irq] != NULL)
         irq_handlers[irq](regs);
@@ -44,4 +49,9 @@ void irq_dispatch(registers_t *regs)
         scheduler_clear_preemption();
         scheduler_schedule();
     }
+}
+
+uint64_t irq0_debug_get_count(void)
+{
+    return irq0_debug_count;
 }

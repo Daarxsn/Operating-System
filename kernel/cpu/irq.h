@@ -7,6 +7,8 @@
 #include "isr.h"
 
 uint64_t irq0_debug_get_count(void);
+uint8_t pic_debug_get_master_mask(void);
+uint8_t pic_debug_get_master_irr(void);
 /* ------------------------------------------------------------
  * IRQ Handler Type
  * ------------------------------------------------------------ */
