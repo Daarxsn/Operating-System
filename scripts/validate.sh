@@ -49,6 +49,7 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
     rm -f "$QEMU_LOG"
 
     qemu-system-x86_64 \
+        -machine q35 \
         -m 512M \
         -cdrom "$PROJECT_ROOT/XyrisOS.iso" \
         -boot d \
@@ -64,6 +65,10 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
         "Syscall Test: Read"
         "Syscall Test: Close"
         "User Test: Address Space Cleanup"
+        "Foundation Test: Millisecond Accounting"
+        "Driver Test: Keyboard Modifier Decode"
+        "Driver Test: Keyboard Pause Sequence"
+        "Driver Test: Mouse Packet Event"
         "THREAD A FINISHED"
         "THREAD B FINISHED"
         "Preemption Test: PASS"
@@ -113,6 +118,10 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
        grep -q "Syscall Test: Read" "$QEMU_LOG" && \
        grep -q "Syscall Test: Close" "$QEMU_LOG" && \
        grep -q "User Test: Address Space Cleanup" "$QEMU_LOG" && \
+       grep -q "Foundation Test: Millisecond Accounting" "$QEMU_LOG" && \
+       grep -q "Driver Test: Keyboard Modifier Decode" "$QEMU_LOG" && \
+       grep -q "Driver Test: Keyboard Pause Sequence" "$QEMU_LOG" && \
+       grep -q "Driver Test: Mouse Packet Event" "$QEMU_LOG" && \
        grep -q "THREAD A FINISHED" "$QEMU_LOG" && \
        grep -q "THREAD B FINISHED" "$QEMU_LOG" && \
        grep -q "Preemption Test: PASS" "$QEMU_LOG"; then

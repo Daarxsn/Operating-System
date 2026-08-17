@@ -1,7 +1,7 @@
 #include "lapic.h"
 
 #include "../memory/hhdm.h"
-
+#include "../memory/vmm.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -134,11 +134,20 @@ bool lapic_initialize(void)
     /*
      * Map the physical LAPIC through the HHDM.
      */
-    lapic_base =
-        (volatile uint8_t *)phys_to_virt(
-            lapic_phys
-        );
+    
+      if (!hhdm_map_mmio(
+        lapic_phys,
+        0x1000
+    ))
+{
+    lapic_initialized = false;
+    return false;
+}
 
+lapic_base =
+    (volatile uint8_t *)phys_to_virt(
+        lapic_phys
+    );
     /*
      * Set the Task Priority Register to zero.
      *

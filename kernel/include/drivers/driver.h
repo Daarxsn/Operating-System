@@ -85,4 +85,8 @@ XKDriver *xk_driver_get(
 
 void xk_driver_dump(void);
 
+uint32_t xk_driver_count_type(XKDriverType type);
+
+uint32_t xk_driver_count_state(XKDriverState state);
+
 #endif

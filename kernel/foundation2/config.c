@@ -30,9 +30,18 @@ bool xk_config_set(
     const char *key,
     uint64_t value)
 {
-    if (key == NULL)
+    if (key == NULL || key[0] == '\0')
     {
         return false;
+    }
+
+    /* Reject keys that cannot be represented without truncation. */
+    uint32_t length = 0;
+    while (key[length] != '\0')
+    {
+        length++;
+        if (length >= XK_CONFIG_KEY_LENGTH)
+            return false;
     }
 
     /* Update existing key */
@@ -95,4 +104,32 @@ bool xk_config_get(
     }
 
     return false;
+}
+
+bool xk_config_remove(const char *key)
+{
+    if (key == NULL)
+        return false;
+
+    for (uint32_t i = 0; i < XK_CONFIG_MAX_ENTRIES; i++)
+    {
+        if (config_table[i].active &&
+            strcmp(config_table[i].key, key) == 0)
+        {
+            config_table[i].active = false;
+            config_table[i].key[0] = '\0';
+            config_table[i].value = 0;
+            return true;
+        }
+    }
+    return false;
+}
+
+uint32_t xk_config_count(void)
+{
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < XK_CONFIG_MAX_ENTRIES; i++)
+        if (config_table[i].active)
+            count++;
+    return count;
 }
