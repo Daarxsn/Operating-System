@@ -49,4 +49,11 @@ uint8_t ioapic_max_irq(void);
 
 bool ioapic_is_initialized(void);
 
+/*
+ * Convert a legacy ISA IRQ number to the IOAPIC GSI used by the
+ * platform's legacy interrupt wiring.  Without ACPI MADT overrides,
+ * XyrisOS uses the standard/QEMU PC mapping where PIT IRQ0 is GSI 2.
+ */
+uint8_t ioapic_isa_irq_to_gsi(uint8_t irq);
+
 #endif

@@ -5,45 +5,69 @@
 /* ============================================================
  * XyrisOS Time Manager
  * ============================================================
+ * The PIT is configured in Hz, while the public millisecond API
+ * must remain correct for arbitrary integer tick frequencies.
+ * Fractional milliseconds are accumulated instead of truncating
+ * every tick independently.
  */
 
 static volatile uint64_t kernel_ticks = 0;
 static volatile uint64_t kernel_milliseconds = 0;
+static volatile uint64_t millisecond_remainder = 0;
+static uint32_t kernel_frequency_hz = 100;
 static uint64_t timer_id_counter = 1;
 
 static XKTimer timers[XK_MAX_TIMERS];
-
-/* ------------------------------------------------------------
- * Initialization
- * ------------------------------------------------------------ */
 
 void xk_time_init(void)
 {
     kernel_ticks = 0;
     kernel_milliseconds = 0;
+    millisecond_remainder = 0;
+    kernel_frequency_hz = 100;
     timer_id_counter = 1;
 
     for (uint32_t i = 0; i < XK_MAX_TIMERS; i++)
     {
         timers[i].active = false;
+        timers[i].id = 0;
+        timers[i].start_tick = 0;
+        timers[i].timeout_ticks = 0;
+        timers[i].callback = NULL;
+        timers[i].context = NULL;
     }
 }
 
-/* ------------------------------------------------------------
- * Tick Handler
- * ------------------------------------------------------------ */
+bool xk_time_set_frequency(uint32_t frequency_hz)
+{
+    if (frequency_hz == 0)
+        return false;
+
+    kernel_frequency_hz = frequency_hz;
+    millisecond_remainder = 0;
+    return true;
+}
+
+uint32_t xk_time_frequency(void)
+{
+    return kernel_frequency_hz;
+}
 
 void xk_time_tick(void)
 {
     kernel_ticks++;
-    kernel_milliseconds++;
+
+    /* Accumulate 1000 milliseconds per second without truncation. */
+    millisecond_remainder += 1000ULL;
+    if (millisecond_remainder >= kernel_frequency_hz)
+    {
+        kernel_milliseconds +=
+            millisecond_remainder / kernel_frequency_hz;
+        millisecond_remainder %= kernel_frequency_hz;
+    }
 
     xk_timer_poll();
 }
-
-/* ------------------------------------------------------------
- * Time Queries
- * ------------------------------------------------------------ */
 
 uint64_t xk_time_ticks(void)
 {
@@ -55,22 +79,18 @@ uint64_t xk_time_milliseconds(void)
     return kernel_milliseconds;
 }
 
-/* ------------------------------------------------------------
- * Busy Wait (Temporary)
- * ------------------------------------------------------------ */
-
 void xk_sleep(uint64_t milliseconds)
 {
+    if (milliseconds == 0)
+        return;
+
     uint64_t target = kernel_milliseconds + milliseconds;
 
     while (kernel_milliseconds < target)
     {
+        __asm__ volatile ("pause");
     }
 }
-
-/* ------------------------------------------------------------
- * Timer Creation
- * ------------------------------------------------------------ */
 
 XKTimer *xk_timer_create(
     uint64_t timeout_ticks,
@@ -78,9 +98,7 @@ XKTimer *xk_timer_create(
     void *context)
 {
     if (callback == NULL)
-    {
         return NULL;
-    }
 
     for (uint32_t i = 0; i < XK_MAX_TIMERS; i++)
     {
@@ -92,7 +110,6 @@ XKTimer *xk_timer_create(
             timers[i].timeout_ticks = timeout_ticks;
             timers[i].callback = callback;
             timers[i].context = context;
-
             return &timers[i];
         }
     }
@@ -100,42 +117,36 @@ XKTimer *xk_timer_create(
     return NULL;
 }
 
-/* ------------------------------------------------------------
- * Timer Cancel
- * ------------------------------------------------------------ */
-
 bool xk_timer_cancel(XKTimer *timer)
 {
-    if (timer == NULL)
-    {
+    if (timer == NULL || !timer->active)
         return false;
-    }
 
     timer->active = false;
-
+    timer->callback = NULL;
+    timer->context = NULL;
     return true;
 }
-
-/* ------------------------------------------------------------
- * Timer Poll
- * ------------------------------------------------------------ */
 
 void xk_timer_poll(void)
 {
     for (uint32_t i = 0; i < XK_MAX_TIMERS; i++)
     {
         if (!timers[i].active)
-        {
             continue;
-        }
 
         uint64_t elapsed = kernel_ticks - timers[i].start_tick;
-
         if (elapsed >= timers[i].timeout_ticks)
         {
-            timers[i].active = false;
+            XKTimerCallback callback = timers[i].callback;
+            void *context = timers[i].context;
 
-            timers[i].callback(timers[i].context);
+            timers[i].active = false;
+            timers[i].callback = NULL;
+            timers[i].context = NULL;
+
+            if (callback != NULL)
+                callback(context);
         }
     }
 }

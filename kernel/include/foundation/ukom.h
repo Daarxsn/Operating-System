@@ -92,6 +92,8 @@ XKObject *xkobject_find(uint64_t id);
 
 bool xkobject_exists(uint64_t id);
 
+uint32_t xkobject_count(void);
+
 void xkobject_retain(XKObject *object);
 
 void xkobject_release(XKObject *object);

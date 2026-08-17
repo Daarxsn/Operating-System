@@ -368,20 +368,59 @@ static void kernel_initialize_interrupts(void)
     );
 
     /*
-     * Route PIT IRQ0 to vector 32 on the BSP LAPIC.
+     * Route legacy ISA interrupts through the IOAPIC.
      *
-     * Start masked while programming the entry.
+     * On the PC/Q35 legacy-replacement wiring, PIT ISA IRQ0 is
+     * presented to the IOAPIC on GSI 2. Routing IOAPIC input 0
+     * leaves the PIT interrupt pending in the legacy PIC instead
+     * of delivering it to the LAPIC. ACPI MADT overrides should
+     * replace this fallback in a future platform layer.
      */
+    const uint8_t pit_gsi = ioapic_isa_irq_to_gsi(0);
+    const uint8_t keyboard_gsi = ioapic_isa_irq_to_gsi(1);
+    const uint8_t mouse_gsi = ioapic_isa_irq_to_gsi(12);
+
     ioapic_set_irq(
-        0,
+        pit_gsi,
         32,
         (uint8_t)lapic_id()
     );
+    ioapic_unmask_irq(pit_gsi);
 
-    /*
-     * Unmask IOAPIC IRQ0.
-     */
-    ioapic_unmask_irq(0);
+    ioapic_set_irq(
+        keyboard_gsi,
+        33,
+        (uint8_t)lapic_id()
+    );
+    ioapic_unmask_irq(keyboard_gsi);
+
+    ioapic_set_irq(
+        mouse_gsi,
+        44,
+        (uint8_t)lapic_id()
+    );
+    ioapic_unmask_irq(mouse_gsi);
+
+    uint32_t pit_low =
+        ioapic_read(
+            (uint8_t)(IOAPIC_REG_REDIR_BASE + pit_gsi * 2)
+        );
+    uint32_t pit_high =
+        ioapic_read(
+            (uint8_t)(IOAPIC_REG_REDIR_BASE + pit_gsi * 2 + 1)
+        );
+
+    debug_print("IOAPIC PIT GSI = ");
+    debug_print_hex64((uint64_t)pit_gsi);
+    debug_print_line("");
+
+    debug_print("IOAPIC PIT LOW = ");
+    debug_print_hex64((uint64_t)pit_low);
+    debug_print_line("");
+
+    debug_print("IOAPIC PIT HIGH = ");
+    debug_print_hex64((uint64_t)pit_high);
+    debug_print_line("");
 
     /*
      * IMPORTANT:
@@ -395,47 +434,23 @@ static void kernel_initialize_interrupts(void)
     pic_mask_irq(12);
 
     boot_step_ok(
-        "IOAPIC IRQ0 Routed To LAPIC Vector 32"
+        "IOAPIC PIT IRQ0 Routed To LAPIC Vector 32"
     );
-
+    
     /*
      * Enable CPU interrupts only after APIC routing is ready.
+     *
+     * PIT/IOAPIC/PIC configuration above is intentionally performed
+     * exactly once. Hardware IRQ delivery uses IOAPIC -> LAPIC.
+     * The legacy PIC remains masked.
      */
+    
     __asm__ volatile ("sti");
 
-    boot_step_ok(
-        "CPU Interrupts Enabled"
-    );
+boot_step_ok(
+    "CPU Interrupts Enabled"
+);
 
-    boot_step_ok(
-        "Programmable Interrupt Controller Initialized"
-    );
-
-    pit_initialize(100);
-
-    boot_step_ok(
-        "Programmable Interval Timer Initialized"
-    );
-
-    pic_unmask_irq(0);
-    pic_unmask_irq(1);
-
-    /*
-     * IRQ12 is delivered through the slave PIC, so the master
-     * cascade line (IRQ2) must also be unmasked.
-     */
-    pic_unmask_irq(2);
-    pic_unmask_irq(12);
-
-    boot_step_ok(
-        "Timer / Keyboard / Mouse IRQs Enabled"
-    );
-
-    __asm__ volatile ("sti");
-
-    boot_step_ok(
-        "CPU Interrupts Enabled"
-    );
 
     debug_print_line("========== IRQ0 DIAGNOSTIC ==========");
 
@@ -713,7 +728,7 @@ static void preemption_test_a(void)
     debug_print("Preemption Test: RFLAGS = ");
     debug_print_hex64(start_rflags);
     debug_print(" IF = ");
-    debug_print((start_rflags & (1ULL << 9)) ? "1\\n" : "0\\n");
+    debug_print((start_rflags & (1ULL << 9)) ? "1\n" : "0\n");
 
     uint8_t pic_mask = pic_debug_get_master_mask();
     uint8_t pic_irr = pic_debug_get_master_irr();
@@ -721,12 +736,12 @@ static void preemption_test_a(void)
     debug_print("Preemption Test: PIC Master Mask = ");
     debug_print_hex64((uint64_t)pic_mask);
     debug_print(" IRQ0 Masked = ");
-    debug_print((pic_mask & 0x01) ? "1\\n" : "0\\n");
+    debug_print((pic_mask & 0x01) ? "1\n" : "0\n");
 
     debug_print("Preemption Test: PIC Master IRR = ");
     debug_print_hex64((uint64_t)pic_irr);
     debug_print(" IRQ0 Pending = ");
-    debug_print((pic_irr & 0x01) ? "1\\n" : "0\\n");
+    debug_print((pic_irr & 0x01) ? "1\n" : "0\n");
 
     debug_print("PREEMPTION TEST A START\\n");
 
@@ -771,7 +786,7 @@ static void preemption_test_a(void)
     debug_print("Preemption Test: Final PIC Master IRR = ");
     debug_print_hex64((uint64_t)end_pic_irr);
     debug_print(" IRQ0 Pending = ");
-    debug_print((end_pic_irr & 0x01) ? "1\\n" : "0\\n");
+    debug_print((end_pic_irr & 0x01) ? "1\n" : "0\n");
 
     if ((start_rflags & (1ULL << 9)) == 0)
     {

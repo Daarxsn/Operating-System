@@ -4,9 +4,6 @@
 
 /* ============================================================
  * XyrisOS Kernel Event Manager
- *
- * Responsible for event subscription and dispatch between
- * kernel subsystems.
  * ============================================================
  */
 
@@ -15,18 +12,9 @@ typedef struct
     XKEventType type;
     XKEventHandler handler;
     bool active;
-
 } XKEventSubscription;
 
-/* ------------------------------------------------------------
- * Static Subscription Table
- * ------------------------------------------------------------ */
-
 static XKEventSubscription subscriptions[XK_EVENT_MAX_SUBSCRIBERS];
-
-/* ------------------------------------------------------------
- * Initialize Event Manager
- * ------------------------------------------------------------ */
 
 void xk_event_init(void)
 {
@@ -38,17 +26,19 @@ void xk_event_init(void)
     }
 }
 
-/* ------------------------------------------------------------
- * Subscribe to an Event
- * ------------------------------------------------------------ */
-
 bool xk_event_subscribe(
     XKEventType type,
     XKEventHandler handler)
 {
-    if (handler == NULL)
-    {
+    if (handler == NULL || type == XK_EVENT_NONE)
         return false;
+
+    for (uint32_t i = 0; i < XK_EVENT_MAX_SUBSCRIBERS; i++)
+    {
+        if (subscriptions[i].active &&
+            subscriptions[i].type == type &&
+            subscriptions[i].handler == handler)
+            return false;
     }
 
     for (uint32_t i = 0; i < XK_EVENT_MAX_SUBSCRIBERS; i++)
@@ -58,7 +48,6 @@ bool xk_event_subscribe(
             subscriptions[i].active = true;
             subscriptions[i].type = type;
             subscriptions[i].handler = handler;
-
             return true;
         }
     }
@@ -66,17 +55,33 @@ bool xk_event_subscribe(
     return false;
 }
 
-/* ------------------------------------------------------------
- * Publish an Event
- * ------------------------------------------------------------ */
+bool xk_event_unsubscribe(
+    XKEventType type,
+    XKEventHandler handler)
+{
+    if (handler == NULL || type == XK_EVENT_NONE)
+        return false;
 
-bool xk_event_publish(
-    const XKEvent *event)
+    for (uint32_t i = 0; i < XK_EVENT_MAX_SUBSCRIBERS; i++)
+    {
+        if (subscriptions[i].active &&
+            subscriptions[i].type == type &&
+            subscriptions[i].handler == handler)
+        {
+            subscriptions[i].active = false;
+            subscriptions[i].type = XK_EVENT_NONE;
+            subscriptions[i].handler = NULL;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool xk_event_publish(const XKEvent *event)
 {
     if (event == NULL)
-    {
         return false;
-    }
 
     for (uint32_t i = 0; i < XK_EVENT_MAX_SUBSCRIBERS; i++)
     {
@@ -88,4 +93,17 @@ bool xk_event_publish(
     }
 
     return true;
+}
+
+uint32_t xk_event_subscriber_count(void)
+{
+    uint32_t count = 0;
+
+    for (uint32_t i = 0; i < XK_EVENT_MAX_SUBSCRIBERS; i++)
+    {
+        if (subscriptions[i].active)
+            count++;
+    }
+
+    return count;
 }

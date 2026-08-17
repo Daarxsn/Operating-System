@@ -38,4 +38,8 @@ bool xk_config_get(
     const char *key,
     uint64_t *value);
 
+bool xk_config_remove(const char *key);
+
+uint32_t xk_config_count(void);
+
 #endif

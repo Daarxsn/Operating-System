@@ -51,7 +51,13 @@ bool xk_event_subscribe(
     XKEventType type,
     XKEventHandler handler);
 
+bool xk_event_unsubscribe(
+    XKEventType type,
+    XKEventHandler handler);
+
 bool xk_event_publish(
     const XKEvent *event);
+
+uint32_t xk_event_subscriber_count(void);
 
 #endif

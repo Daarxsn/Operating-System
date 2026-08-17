@@ -37,6 +37,11 @@ typedef struct XKTimer
 
 void xk_time_init(void);
 
+/* Configure the hardware tick frequency used for time conversion. */
+bool xk_time_set_frequency(uint32_t frequency_hz);
+
+uint32_t xk_time_frequency(void);
+
 void xk_time_tick(void);
 
 uint64_t xk_time_ticks(void);

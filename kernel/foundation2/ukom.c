@@ -1,5 +1,7 @@
 #include "foundation/ukom.h"
 
+#include <stdint.h>
+
 /*
  * ============================================================
  * XyrisOS Universal Kernel Object Manager
@@ -40,7 +42,8 @@ void xkobject_init(void)
  * ------------------------------------------------------------ */
 XKObject *xkobject_create(XKObjectType type)
 {
-    if (object_count >= XKOBJECT_MAX_OBJECTS)
+    if (type == XK_OBJECT_NONE ||
+        object_count >= XKOBJECT_MAX_OBJECTS)
         return 0;
 
     for (uint32_t i = 0; i < XKOBJECT_MAX_OBJECTS; i++)
@@ -117,7 +120,9 @@ bool xkobject_exists(uint64_t id)
  * ------------------------------------------------------------ */
 void xkobject_retain(XKObject *object)
 {
-    if (object == 0)
+    if (object == 0 ||
+        object->id == 0 ||
+        object->ref_count == UINT32_MAX)
         return;
 
     object->ref_count++;
@@ -141,4 +146,8 @@ void xkobject_release(XKObject *object)
             xkobject_destroy(object->id);
         }
     }
+}
+uint32_t xkobject_count(void)
+{
+    return object_count;
 }

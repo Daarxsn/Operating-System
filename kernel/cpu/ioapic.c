@@ -1,7 +1,7 @@
 #include "ioapic.h"
 
 #include "../memory/hhdm.h"
-
+#include "../memory/vmm.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -103,10 +103,19 @@ void ioapic_write(uint8_t reg, uint32_t value)
 
 bool ioapic_initialize(void)
 {
-    ioapic_base =
-        (volatile uint8_t *)phys_to_virt(
-            ioapic_phys
-        );
+    if (!hhdm_map_mmio(
+        ioapic_phys,
+        0x1000
+    ))
+{
+    ioapic_initialized = false;
+    return false;
+}
+
+ioapic_base =
+    (volatile uint8_t *)phys_to_virt(
+        ioapic_phys
+    );
 
     /*
      * IOAPICVER:
@@ -278,4 +287,17 @@ uint8_t ioapic_max_irq(void)
 bool ioapic_is_initialized(void)
 {
     return ioapic_initialized;
+}
+
+/*
+ * Legacy ISA -> IOAPIC GSI mapping fallback.
+ *
+ * The PIT is ISA IRQ0, but on the PC/Q35 legacy-replacement wiring
+ * represented by QEMU it enters the IOAPIC on GSI 2. ACPI MADT
+ * interrupt-source overrides should replace this fallback on real
+ * hardware when platform discovery is added.
+ */
+uint8_t ioapic_isa_irq_to_gsi(uint8_t irq)
+{
+    return (irq == 0U) ? 2U : irq;
 }

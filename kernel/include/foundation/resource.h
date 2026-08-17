@@ -114,6 +114,13 @@ bool xk_resource_set_state(
     uint64_t id,
     XKResourceState state);
 
+bool xk_resource_retain(uint64_t id);
+bool xk_resource_release(uint64_t id);
+
 void xk_resource_dump(void);
+
+uint32_t xk_resource_count(void);
+
+uint32_t xk_resource_count_owned_by(uint64_t owner);
 
 #endif

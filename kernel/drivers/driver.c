@@ -2,36 +2,28 @@
 
 #include <stddef.h>
 #include <string.h>
-
-/* ============================================================
- * Driver Table
- * ============================================================
- */
+#include "debug/print.h"
 
 static XKDriver *driver_table[XK_MAX_DRIVERS];
 
-/* ------------------------------------------------------------
- * Initialize Driver Manager
- * ------------------------------------------------------------ */
+static bool driver_name_valid(const char *name)
+{
+    return name != NULL && name[0] != '\0';
+}
 
 void xk_driver_manager_init(void)
 {
     for (uint32_t i = 0; i < XK_MAX_DRIVERS; i++)
-    {
         driver_table[i] = NULL;
-    }
 }
-
-/* ------------------------------------------------------------
- * Register Driver
- * ------------------------------------------------------------ */
 
 bool xk_driver_register(XKDriver *driver)
 {
-    if (driver == NULL)
-    {
+    if (driver == NULL || !driver_name_valid(driver->name))
         return false;
-    }
+
+    if (xk_driver_find(driver->name) != NULL)
+        return false;
 
     for (uint32_t i = 0; i < XK_MAX_DRIVERS; i++)
     {
@@ -46,151 +38,134 @@ bool xk_driver_register(XKDriver *driver)
     return false;
 }
 
-/* ------------------------------------------------------------
- * Find Driver
- * ------------------------------------------------------------ */
-
 XKDriver *xk_driver_find(const char *name)
 {
-    if (name == NULL)
-    {
+    if (!driver_name_valid(name))
         return NULL;
-    }
 
     for (uint32_t i = 0; i < XK_MAX_DRIVERS; i++)
     {
         if (driver_table[i] != NULL &&
             strcmp(driver_table[i]->name, name) == 0)
-        {
             return driver_table[i];
-        }
     }
 
     return NULL;
 }
 
-/* ------------------------------------------------------------
- * Initialize All Drivers
- * ------------------------------------------------------------ */
-
 void xk_driver_initialize_all(void)
 {
     for (uint32_t i = 0; i < XK_MAX_DRIVERS; i++)
     {
-        if (driver_table[i] == NULL)
+        XKDriver *driver = driver_table[i];
+        if (driver == NULL)
             continue;
 
-        if (driver_table[i]->initialize != NULL)
+        if (driver->state == XK_DRIVER_RUNNING)
+            continue;
+
+        if (driver->initialize == NULL)
         {
-            if (driver_table[i]->initialize())
-            {
-                driver_table[i]->state =
-                    XK_DRIVER_INITIALIZED;
-            }
-            else
-            {
-                driver_table[i]->state =
-                    XK_DRIVER_FAILED;
-            }
+            /* A registration-only driver is valid and ready to use. */
+            driver->state = XK_DRIVER_RUNNING;
+            continue;
         }
+
+        driver->state = XK_DRIVER_INITIALIZED;
+
+        if (driver->initialize())
+            driver->state = XK_DRIVER_RUNNING;
+        else
+            driver->state = XK_DRIVER_FAILED;
     }
 }
-
-/* ------------------------------------------------------------
- * Shutdown All Drivers
- * ------------------------------------------------------------ */
 
 void xk_driver_shutdown_all(void)
 {
     for (uint32_t i = 0; i < XK_MAX_DRIVERS; i++)
     {
-        if (driver_table[i] == NULL)
+        XKDriver *driver = driver_table[i];
+        if (driver == NULL)
             continue;
 
-        if (driver_table[i]->shutdown != NULL)
+        if (driver->shutdown != NULL &&
+            driver->state != XK_DRIVER_UNINITIALIZED &&
+            driver->state != XK_DRIVER_REGISTERED)
         {
-            driver_table[i]->shutdown();
+            driver->shutdown();
         }
+
+        driver->state = XK_DRIVER_UNINITIALIZED;
     }
 }
 
-
-/* ------------------------------------------------------------
- * Unregister Driver
- * ------------------------------------------------------------ */
-
-bool xk_driver_unregister(
-    const char *name)
+bool xk_driver_unregister(const char *name)
 {
-    if (name == NULL)
-    {
+    if (!driver_name_valid(name))
         return false;
-    }
 
     for (uint32_t i = 0; i < XK_MAX_DRIVERS; i++)
     {
-        if (driver_table[i] == NULL)
-        {
+        XKDriver *driver = driver_table[i];
+        if (driver == NULL || strcmp(driver->name, name) != 0)
             continue;
-        }
 
-        if (strcmp(driver_table[i]->name, name) == 0)
+        if (driver->shutdown != NULL &&
+            driver->state != XK_DRIVER_UNINITIALIZED &&
+            driver->state != XK_DRIVER_REGISTERED)
         {
-            driver_table[i]->state = XK_DRIVER_UNINITIALIZED;
-            driver_table[i] = NULL;
-
-            return true;
+            driver->shutdown();
         }
+
+        driver->state = XK_DRIVER_UNINITIALIZED;
+        driver_table[i] = NULL;
+        return true;
     }
 
     return false;
 }
 
-/* ------------------------------------------------------------
- * Driver Count
- * ------------------------------------------------------------ */
-
 uint32_t xk_driver_count(void)
 {
     uint32_t count = 0;
-
     for (uint32_t i = 0; i < XK_MAX_DRIVERS; i++)
-    {
         if (driver_table[i] != NULL)
-        {
             count++;
-        }
-    }
-
     return count;
 }
 
-/* ------------------------------------------------------------
- * Get Driver
- * ------------------------------------------------------------ */
-
-XKDriver *xk_driver_get(
-    uint32_t index)
+XKDriver *xk_driver_get(uint32_t index)
 {
     if (index >= XK_MAX_DRIVERS)
-    {
         return NULL;
-    }
-
     return driver_table[index];
 }
 
-/* ------------------------------------------------------------
- * Driver Dump
- * ------------------------------------------------------------ */
-
 void xk_driver_dump(void)
 {
-    /*
-     * Future implementation:
-     *
-     * Iterate through all registered
-     * drivers and print them using
-     * the kernel logger.
-     */
+    for (uint32_t i = 0; i < XK_MAX_DRIVERS; i++)
+    {
+        if (driver_table[i] == NULL)
+            continue;
+        debug_print("Driver: ");
+        debug_print_line(driver_table[i]->name);
+    }
+}
+
+uint32_t xk_driver_count_type(XKDriverType type)
+{
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < XK_MAX_DRIVERS; i++)
+        if (driver_table[i] != NULL && driver_table[i]->type == type)
+            count++;
+    return count;
+}
+
+uint32_t xk_driver_count_state(XKDriverState state)
+{
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < XK_MAX_DRIVERS; i++)
+        if (driver_table[i] != NULL && driver_table[i]->state == state)
+            count++;
+    return count;
 }

@@ -87,4 +87,6 @@ bool xk_capability_check(
 void xk_capability_clear(
     uint64_t object_id);
 
+uint32_t xk_capability_count(void);
+
 #endif /* XYRIS_FOUNDATION_CAPABILITY_H */

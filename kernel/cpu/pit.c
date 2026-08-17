@@ -21,6 +21,7 @@ void pit_initialize(uint32_t frequency)
     }
 
     pit_frequency = frequency;
+    (void)xk_time_set_frequency(frequency);
 
     uint16_t divisor =
         (uint16_t)(
