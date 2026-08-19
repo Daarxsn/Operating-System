@@ -293,10 +293,10 @@ static void kernel_initialize_cpu(void)
 
 static void kernel_initialize_interrupts(void)
 {
-    
     /*
-     * Keep the legacy PIC initialized for compatibility,
-     * but hardware interrupt delivery will use APIC.
+     * Initialize the legacy PIC so the existing x86 interrupt
+     * infrastructure is left in a known state. It will be completely
+     * masked before CPU interrupts are enabled.
      */
     pic_initialize();
 
@@ -304,23 +304,21 @@ static void kernel_initialize_interrupts(void)
         "Programmable Interrupt Controller Initialized"
     );
 
-    /*
-     * Initialize the Local APIC first.
-     */
-    if (lapic_initialize())
-    {
-        boot_step_ok(
-            "Local APIC Initialized"
-        );
-    }
-    else
+    /* -------------------------------------------------
+       Local APIC
+    ------------------------------------------------- */
+
+    if (!lapic_initialize())
     {
         boot_step_fail(
             "Local APIC Initialization Failed"
         );
-
         return;
     }
+
+    boot_step_ok(
+        "Local APIC Initialized"
+    );
 
     debug_print("LAPIC physical base = ");
     debug_print_hex64(
@@ -328,29 +326,30 @@ static void kernel_initialize_interrupts(void)
     );
     debug_print_line("");
 
+    const uint8_t destination_lapic =
+        (uint8_t)lapic_id();
+
     debug_print("LAPIC ID = ");
     debug_print_hex64(
-        (uint64_t)lapic_id()
+        (uint64_t)destination_lapic
     );
     debug_print_line("");
 
-    /*
-     * Initialize IOAPIC.
-     */
-    if (ioapic_initialize())
-    {
-        boot_step_ok(
-            "IOAPIC Initialized"
-        );
-    }
-    else
+    /* -------------------------------------------------
+       IOAPIC
+    ------------------------------------------------- */
+
+    if (!ioapic_initialize())
     {
         boot_step_fail(
             "IOAPIC Initialization Failed"
         );
-
         return;
     }
+
+    boot_step_ok(
+        "IOAPIC Initialized"
+    );
 
     debug_print("IOAPIC Max IRQ = ");
     debug_print_hex64(
@@ -358,105 +357,151 @@ static void kernel_initialize_interrupts(void)
     );
     debug_print_line("");
 
-    /*
-     * PIT still generates IRQ0.
-     */
+    /* -------------------------------------------------
+       PIT
+    ------------------------------------------------- */
+
     pit_initialize(100);
 
     boot_step_ok(
         "Programmable Interval Timer Initialized"
     );
 
+    /* -------------------------------------------------
+       IOAPIC routing
+    ------------------------------------------------- */
+
     /*
-     * Route legacy ISA interrupts through the IOAPIC.
+     * The current QEMU Q35 platform uses the ACPI MADT-style
+     * interrupt-source override:
      *
-     * On the PC/Q35 legacy-replacement wiring, PIT ISA IRQ0 is
-     * presented to the IOAPIC on GSI 2. Routing IOAPIC input 0
-     * leaves the PIT interrupt pending in the legacy PIC instead
-     * of delivering it to the LAPIC. ACPI MADT overrides should
-     * replace this fallback in a future platform layer.
+     *     ISA IRQ0 (PIT) -> GSI 2 -> IOAPIC input 2
+     *
+     * We do not yet parse MADT, so this mapping is supplied by the
+     * small platform fallback in ioapic_isa_irq_to_gsi().
      */
-    const uint8_t pit_gsi = ioapic_isa_irq_to_gsi(0);
-    const uint8_t keyboard_gsi = ioapic_isa_irq_to_gsi(1);
-    const uint8_t mouse_gsi = ioapic_isa_irq_to_gsi(12);
+    const uint8_t pit_gsi =
+        ioapic_isa_irq_to_gsi(0);
+
+    const uint8_t keyboard_gsi =
+        ioapic_isa_irq_to_gsi(1);
+
+    const uint8_t mouse_gsi =
+        ioapic_isa_irq_to_gsi(12);
 
     ioapic_set_irq(
         pit_gsi,
         32,
-        (uint8_t)lapic_id()
+        destination_lapic
     );
-    ioapic_unmask_irq(pit_gsi);
 
     ioapic_set_irq(
         keyboard_gsi,
         33,
-        (uint8_t)lapic_id()
+        destination_lapic
     );
-    ioapic_unmask_irq(keyboard_gsi);
 
     ioapic_set_irq(
         mouse_gsi,
         44,
-        (uint8_t)lapic_id()
+        destination_lapic
     );
-    ioapic_unmask_irq(mouse_gsi);
 
-    uint32_t pit_low =
-        ioapic_read(
-            (uint8_t)(IOAPIC_REG_REDIR_BASE + pit_gsi * 2)
-        );
-    uint32_t pit_high =
-        ioapic_read(
-            (uint8_t)(IOAPIC_REG_REDIR_BASE + pit_gsi * 2 + 1)
-        );
+    /* -------------------------------------------------
+       APIC routing diagnostic
+    ------------------------------------------------- */
 
-    debug_print("IOAPIC PIT GSI = ");
+    debug_print_line(
+        "========== IOAPIC ROUTING DIAGNOSTIC =========="
+    );
+
+    debug_print("PIT ISA IRQ = ");
+    debug_print_hex64(0);
+    debug_print(" -> GSI = ");
     debug_print_hex64((uint64_t)pit_gsi);
     debug_print_line("");
 
-    debug_print("IOAPIC PIT LOW = ");
-    debug_print_hex64((uint64_t)pit_low);
+    debug_print("IOAPIC GSI 0 LOW  = ");
+    debug_print_hex64(
+        (uint64_t)ioapic_read_redir_low(0)
+    );
+    debug_print_line("");
+
+    debug_print("IOAPIC GSI 0 HIGH = ");
+    debug_print_hex64(
+        (uint64_t)ioapic_read_redir_high(0)
+    );
+    debug_print_line("");
+
+    debug_print("IOAPIC PIT LOW  = ");
+    debug_print_hex64(
+        (uint64_t)ioapic_read_redir_low(pit_gsi)
+    );
     debug_print_line("");
 
     debug_print("IOAPIC PIT HIGH = ");
-    debug_print_hex64((uint64_t)pit_high);
+    debug_print_hex64(
+        (uint64_t)ioapic_read_redir_high(pit_gsi)
+    );
     debug_print_line("");
 
+    debug_print("IOAPIC GSI 1 LOW  = ");
+    debug_print_hex64(
+        (uint64_t)ioapic_read_redir_low(keyboard_gsi)
+    );
+    debug_print_line("");
+
+    debug_print("IOAPIC GSI 12 LOW = ");
+    debug_print_hex64(
+        (uint64_t)ioapic_read_redir_low(mouse_gsi)
+    );
+    debug_print_line("");
+
+    debug_print_line(
+        "==============================================="
+    );
+
     /*
-     * IMPORTANT:
-     *
-     * We are now using IOAPIC/LAPIC for hardware IRQ delivery.
-     * Mask the legacy PIC so it cannot compete with APIC routing.
+     * Unmask only the APIC inputs we have explicitly programmed.
+     * They remain masked while the redirection entries are written.
      */
-    pic_mask_irq(0);
-    pic_mask_irq(1);
-    pic_mask_irq(2);
-    pic_mask_irq(12);
+    ioapic_unmask_irq(pit_gsi);
+    ioapic_unmask_irq(keyboard_gsi);
+    ioapic_unmask_irq(mouse_gsi);
+
+    /*
+     * Disable legacy PIC delivery completely. This is important:
+     * hardware IRQs are now acknowledged with LAPIC EOI, not PIC EOI.
+     */
+    for (uint8_t irq = 0; irq < 16U; ++irq)
+        pic_mask_irq(irq);
 
     boot_step_ok(
         "IOAPIC PIT IRQ0 Routed To LAPIC Vector 32"
     );
-    
+
     /*
-     * Enable CPU interrupts only after APIC routing is ready.
-     *
-     * PIT/IOAPIC/PIC configuration above is intentionally performed
-     * exactly once. Hardware IRQ delivery uses IOAPIC -> LAPIC.
-     * The legacy PIC remains masked.
+     * Enable CPU interrupt recognition only after the complete APIC
+     * route has been programmed and the legacy PIC has been masked.
      */
-    
     __asm__ volatile ("sti");
 
-boot_step_ok(
-    "CPU Interrupts Enabled"
-);
+    boot_step_ok(
+        "CPU Interrupts Enabled"
+    );
 
+    /* -------------------------------------------------
+       Hardware IRQ0 diagnostic
+    ------------------------------------------------- */
 
-    debug_print_line("========== IRQ0 DIAGNOSTIC ==========");
+    debug_print_line(
+        "========== IRQ0 DIAGNOSTIC =========="
+    );
 
-    uint64_t irq0_before = irq0_debug_get_count();
+    uint64_t irq0_before =
+        irq0_debug_get_count();
 
-    /* Wait until at least one hardware IRQ0 arrives, or until timeout. */
+    /* Wait for one real hardware IRQ0, with a bounded timeout. */
     uint64_t timeout = 50000000ULL;
 
     while (irq0_debug_get_count() == irq0_before && timeout--)
@@ -465,22 +510,38 @@ boot_step_ok(
     }
 
     debug_print("IRQ0 count = ");
-    debug_print_hex64(irq0_debug_get_count());
+    debug_print_hex64(
+        irq0_debug_get_count()
+    );
     debug_print_line("");
 
     debug_print("PIT handler count = ");
-    debug_print_hex64(pit_debug_get_handler_count());
+    debug_print_hex64(
+        pit_debug_get_handler_count()
+    );
     debug_print_line("");
 
     debug_print("PIT ticks = ");
-    debug_print_hex64(pit_get_ticks());
+    debug_print_hex64(
+        pit_get_ticks()
+    );
     debug_print_line("");
 
     debug_print("Scheduler ticks = ");
-    debug_print_hex64(scheduler_debug_get_tick_count());
+    debug_print_hex64(
+        scheduler_debug_get_tick_count()
+    );
     debug_print_line("");
 
-    debug_print_line("======================================");
+    debug_print("Final PIT LOW = ");
+    debug_print_hex64(
+        (uint64_t)ioapic_read_redir_low(pit_gsi)
+    );
+    debug_print_line("");
+
+    debug_print_line(
+        "====================================="
+    );
 }
 
 
