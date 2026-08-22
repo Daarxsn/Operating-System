@@ -1,9 +1,58 @@
 #include "user.h"
+#include "thread.h"
+#include "scheduler.h"
 
 #include "../memory/pmm.h"
 
 #define USER_STACK_TOP  0x00007FFFFFF00000ULL
 #define USER_STACK_SIZE (16 * 4096ULL)
+
+extern void user_thread_enter(void);
+
+void user_thread_bootstrap(void)
+{
+    thread_t *thread = thread_current();
+
+    if (!thread ||
+        !thread->user_thread ||
+        !thread->owner ||
+        !thread->owner->address_space)
+    {
+        scheduler_exit_current();
+
+        for (;;)
+            __asm__ volatile("hlt");
+    }
+
+    /*
+     * The process address space must become active before
+     * attempting the Ring-3 transition.
+     */
+    vmm_switch_space(
+        (address_space_t *)thread->owner->address_space
+    );
+
+    /*
+     * user_thread_enter expects:
+     *
+     *   RAX = user RIP
+     *   RDX = user RSP
+     */
+    uint64_t entry = thread->user_entry;
+    uint64_t stack = thread->user_stack;
+
+    __asm__ volatile(
+        "movq %[entry], %%rax\n\t"
+        "movq %[stack], %%rdx\n\t"
+        "jmp user_thread_enter\n\t"
+        :
+        : [entry] "r"(entry),
+          [stack] "r"(stack)
+        : "rax", "rdx", "memory"
+    );
+
+    __builtin_unreachable();
+}
 
 int user_prepare(
     user_process_t* process,

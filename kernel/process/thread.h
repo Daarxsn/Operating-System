@@ -38,23 +38,58 @@ typedef struct thread
     void (*entry)(void);
     thread_state_t state;
     thread_priority_t priority;
+
     context_t *context;
+
     void *stack;
     uint64_t stack_size;
+
+    /*
+     * --------------------------------------------------------
+     * User-mode execution
+     * --------------------------------------------------------
+     *
+     * Kernel threads leave these fields unused.
+     *
+     * A user thread stores the Ring-3 entry point and initial
+     * user stack here. The actual iret frame will be prepared
+     * when we implement the user-mode bootstrap.
+     */
+    bool user_thread;
+    uint64_t user_entry;
+    uint64_t user_stack;
+
     uint64_t cpu_time;
     uint64_t time_slice;
     uint64_t wake_tick;
+
     bool scheduler_managed;
     bool started;
     bool exit_accounted;
+
     struct thread *next;
     struct thread *previous;
+
 } thread_t;
 
 void thread_initialize(void);
-thread_t *thread_create(process_t *owner, void (*entry)(void), thread_priority_t priority);
+
+thread_t *thread_create(
+    process_t *owner,
+    void (*entry)(void),
+    thread_priority_t priority
+);
+
+thread_t *thread_create_user(
+    process_t *owner,
+    uint64_t entry,
+    uint64_t user_stack,
+    thread_priority_t priority
+);
+
 void thread_destroy(thread_t *thread);
 void thread_destroy_process_threads(process_t *owner);
+
 thread_t *thread_current(void);
 void thread_set_current(thread_t *thread);
 
