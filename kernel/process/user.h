@@ -2,6 +2,10 @@
 #define XYRIS_USER_H
 
 #include <stdint.h>
+#include <stdbool.h>
+#include "../memory/vmm.h"
+#include <stdint.h>
+#include <stdbool.h>
 #include "../memory/vmm.h"
 
 typedef struct
@@ -10,11 +14,20 @@ typedef struct
     uint64_t stack;
     uint64_t stack_base;
     uint64_t stack_size;
-    address_space_t* address_space;
+    address_space_t *address_space;
+
+    bool owns_address_space;
 } user_process_t;
 
 int user_prepare(user_process_t* process, uint64_t entry);
 void user_destroy(user_process_t* process);
 void user_enter(user_process_t* process);
 void user_thread_enter(void);
+
+int user_prepare_in_space(
+    user_process_t *process,
+    address_space_t *space,
+    uint64_t entry
+);
+
 #endif

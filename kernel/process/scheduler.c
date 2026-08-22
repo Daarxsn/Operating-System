@@ -4,6 +4,7 @@
 #include "process.h"
 #include "thread.h"
 #include <stddef.h>
+#include "../memory/vmm.h"
 
 static scheduler_t scheduler;
 static context_t bootstrap_context;
@@ -196,6 +197,26 @@ void scheduler_schedule(void)
     next->time_slice = 0;
     scheduler.context_switches++;
 
+        /*
+    * Select the address space belonging to the destination
+    * process before entering its context.
+    *
+    * Kernel threads use the kernel address space.
+    * User threads use their process address space.
+    */
+    if (next->owner != NULL &&
+        !next->owner->kernel_process &&
+        next->owner->address_space != NULL)
+    {
+        vmm_switch_space(
+            (address_space_t *)next->owner->address_space
+        );
+    }
+    else
+    {
+        vmm_switch_kernel_space();
+    }
+    
     if (previous == NULL) context_switch(&bootstrap_context, next->context);
     else context_switch(previous->context, next->context);
 }

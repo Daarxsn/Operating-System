@@ -95,6 +95,7 @@ address_space_t* vmm_create_space(void);
 void vmm_destroy_space(address_space_t* space);
 
 void vmm_switch_space(address_space_t* space);
+void vmm_switch_kernel_space(void);
 
 /* --------------------------------------------------
    TLB

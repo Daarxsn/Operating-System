@@ -161,6 +161,77 @@ int user_prepare(
     return 0;
 }
 
+static int user_prepare_stack(
+    user_process_t *process,
+    address_space_t *space,
+    uint64_t entry,
+    bool owns_space)
+{
+    if (!process ||
+        !space ||
+        entry == 0 ||
+        entry >= 0x0000800000000000ULL)
+    {
+        return -1;
+    }
+
+    *process = (user_process_t){0};
+
+    process->address_space = space;
+    process->owns_address_space = owns_space;
+
+    process->stack_base =
+        USER_STACK_TOP - USER_STACK_SIZE;
+
+    process->stack_size =
+        USER_STACK_SIZE;
+
+    for (uint64_t va = process->stack_base;
+         va < USER_STACK_TOP;
+         va += PAGE_SIZE)
+    {
+        phys_addr_t page = pmm_alloc_page();
+
+        if (page == 0)
+        {
+            user_destroy(process);
+            return -1;
+        }
+
+        if (!vmm_map_page(
+                space,
+                va,
+                page,
+                VMM_USER |
+                VMM_WRITABLE |
+                VMM_NX))
+        {
+            pmm_free_page(page);
+            user_destroy(process);
+            return -1;
+        }
+    }
+
+    process->entry = entry;
+    process->stack = USER_STACK_TOP - 16;
+
+    return 0;
+}
+
+int user_prepare_in_space(
+    user_process_t *process,
+    address_space_t *space,
+    uint64_t entry)
+{
+    return user_prepare_stack(
+        process,
+        space,
+        entry,
+        false
+    );
+}
+
+
 
 /*
  * --------------------------------------------------------
@@ -232,9 +303,12 @@ void user_destroy(
          * page-table hierarchy.
          */
 
-        vmm_destroy_space(
-            process->address_space
-        );
+        if (process->owns_address_space)
+        {
+            vmm_destroy_space(
+                process->address_space
+            );
+        }
     }
 
     /*

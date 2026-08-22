@@ -388,6 +388,16 @@ void vmm_switch_space(address_space_t* space)
     );
 }
 
+void vmm_switch_kernel_space(void)
+{
+    if (kernel_space.pml4 == NULL)
+        return;
+
+    write_cr3(
+        virt_to_phys(kernel_space.pml4)
+    );
+}
+
 /* --------------------------------------------------
    Map Page
 -------------------------------------------------- */

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #define PROCESS_MAX_COUNT      128
 #define PROCESS_NAME_LENGTH    64
@@ -10,6 +11,15 @@
 struct thread;
 typedef struct thread thread_t;
 typedef uint32_t process_id_t;
+
+
+
+process_t *process_create_user(
+    const char *name,
+    const void *image,
+    size_t image_size
+);
+
 
 typedef enum
 {

@@ -5,6 +5,7 @@
 #include "thread.h"
 #include "scheduler.h"
 #include "../memory/vmm.h"
+#include "user.h"
 
 static process_t process_table[PROCESS_MAX_COUNT];
 static process_t *current_process = NULL;
@@ -59,6 +60,77 @@ process_t *process_create(const char *name, bool kernel_process)
     }
 
     return NULL;
+}
+
+process_t *process_create_user(
+    const char *name,
+    const void *image,
+    size_t image_size)
+{
+    if (name == NULL || image == NULL || image_size == 0)
+        return NULL;
+
+    process_t *process = process_create(name, false);
+    if (process == NULL)
+        return NULL;
+
+    address_space_t *space = vmm_create_space();
+    if (space == NULL)
+    {
+        process_destroy(process);
+        return NULL;
+    }
+
+    uint64_t entry = 0;
+
+    if (elf_load_into_space(
+            image,
+            image_size,
+            space,
+            &entry) != 0)
+    {
+        vmm_destroy_space(space);
+        process_destroy(process);
+        return NULL;
+    }
+
+    user_process_t user = {0};
+
+    if (user_prepare_in_space(
+            &user,
+            space,
+            entry) != 0)
+    {
+        vmm_destroy_space(space);
+        process_destroy(process);
+        return NULL;
+    }
+
+    process->address_space = space;
+
+    thread_t *thread =
+        thread_create_user(
+            process,
+            user.entry,
+            user.stack,
+            THREAD_PRIORITY_NORMAL
+        );
+
+    if (thread == NULL)
+    {
+        user.owns_address_space = true;
+        user_destroy(&user);
+
+        process->address_space = NULL;
+        process_destroy(process);
+        return NULL;
+    }
+
+    process->state = PROCESS_READY;
+
+    scheduler_add_thread(thread);
+
+    return process;
 }
 
 void process_set_address_space(process_t *process, void *address_space)
