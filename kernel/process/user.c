@@ -74,12 +74,14 @@ int user_prepare(
      */
 
     process->address_space =
-        vmm_create_space();
+    vmm_create_space();
 
     if (!process->address_space)
     {
         return -1;
     }
+
+    process->owns_address_space = true;
 
     /*
      * ----------------------------------------------------

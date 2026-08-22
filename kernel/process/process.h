@@ -12,15 +12,6 @@ struct thread;
 typedef struct thread thread_t;
 typedef uint32_t process_id_t;
 
-
-
-process_t *process_create_user(
-    const char *name,
-    const void *image,
-    size_t image_size
-);
-
-
 typedef enum
 {
     PROCESS_CREATED = 0,
@@ -47,7 +38,18 @@ typedef struct process
 } process_t;
 
 void process_initialize(void);
-process_t *process_create(const char *name, bool kernel_process);
+
+process_t *process_create(
+    const char *name,
+    bool kernel_process
+);
+
+process_t *process_create_user(
+    const char *name,
+    const void *image,
+    size_t image_size
+);
+
 void process_destroy(process_t *process);
 process_t *process_current(void);
 void process_set_current(process_t *process);

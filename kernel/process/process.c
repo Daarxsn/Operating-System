@@ -1,11 +1,14 @@
 #include "process.h"
-
-#include <stddef.h>
-#include "../lib/string.h"
 #include "thread.h"
 #include "scheduler.h"
-#include "../memory/vmm.h"
 #include "user.h"
+
+#include "../loader/elf.h"
+#include "../memory/vmm.h"
+
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
 static process_t process_table[PROCESS_MAX_COUNT];
 static process_t *current_process = NULL;
@@ -108,17 +111,21 @@ process_t *process_create_user(
 
     process->address_space = space;
 
-    thread_t *thread =
-        thread_create_user(
-            process,
-            user.entry,
-            user.stack,
-            THREAD_PRIORITY_NORMAL
-        );
+    thread_t *thread = thread_create_user(
+        process,
+        user.entry,
+        user.stack,
+        THREAD_PRIORITY_NORMAL
+    );
 
     if (thread == NULL)
     {
+        /*
+         * user_prepare_in_space() does not own
+         * the address space.
+         */
         user.owns_address_space = true;
+
         user_destroy(&user);
 
         process->address_space = NULL;
@@ -127,7 +134,6 @@ process_t *process_create_user(
     }
 
     process->state = PROCESS_READY;
-
     scheduler_add_thread(thread);
 
     return process;
