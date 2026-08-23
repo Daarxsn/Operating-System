@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "../loader/elf.h"
+#include "user.h"
 
 #define PROCESS_MAX_COUNT      128
 #define PROCESS_NAME_LENGTH    64
@@ -30,6 +32,8 @@ typedef struct process
     bool kernel_process;
     thread_t *main_thread;
     void *address_space;
+    elf_load_info_t elf_load;
+    user_process_t user;
     uint64_t cpu_time;
     uint64_t live_threads;
     int32_t exit_code;

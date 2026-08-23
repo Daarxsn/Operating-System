@@ -44,10 +44,32 @@ typedef struct __attribute__((packed))
     uint64_t p_align;
 } Elf64_Phdr;
 
+typedef struct elf_page_owner
+{
+    uintptr_t virtual_addr;
+    phys_addr_t physical_addr;
+    struct elf_page_owner *next;
+} elf_page_owner_t;
+
+typedef struct
+{
+    elf_page_owner_t *pages;
+    size_t page_count;
+} elf_load_info_t;
+
 int elf_validate(const void* image);
 uint64_t elf_get_entry(const void* image);
 int elf_load(const void* image);
-int elf_load_into_space(const void* image, size_t image_size,
-                        address_space_t* space, uint64_t* entry_out);
+int elf_load_into_space(
+    const void *image,
+    size_t image_size,
+    address_space_t *space,
+    uint64_t *entry_out,
+    elf_load_info_t *load_info
+);
 
+void elf_release_load(
+    address_space_t *space,
+    elf_load_info_t *load_info
+);
 #endif

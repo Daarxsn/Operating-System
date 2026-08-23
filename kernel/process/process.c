@@ -78,33 +78,33 @@ process_t *process_create_user(
         return NULL;
 
     address_space_t *space = vmm_create_space();
+
     if (space == NULL)
     {
         process_destroy(process);
         return NULL;
     }
 
+    process->address_space = space;
+
     uint64_t entry = 0;
 
     if (elf_load_into_space(
-            image,
-            image_size,
-            space,
-            &entry) != 0)
+        image,
+        image_size,
+        space,
+        &entry,
+        &process->elf_load) != 0)
     {
-        vmm_destroy_space(space);
         process_destroy(process);
         return NULL;
     }
 
-    user_process_t user = {0};
-
     if (user_prepare_in_space(
-            &user,
-            space,
-            entry) != 0)
+        &process->user,
+        space,
+        entry) != 0)
     {
-        vmm_destroy_space(space);
         process_destroy(process);
         return NULL;
     }
@@ -113,26 +113,16 @@ process_t *process_create_user(
 
     thread_t *thread = thread_create_user(
         process,
-        user.entry,
-        user.stack,
+        process->user.entry,
+        process->user.stack,
         THREAD_PRIORITY_NORMAL
     );
 
     if (thread == NULL)
     {
-        /*
-         * user_prepare_in_space() does not own
-         * the address space.
-         */
-        user.owns_address_space = true;
-
-        user_destroy(&user);
-
-        process->address_space = NULL;
         process_destroy(process);
         return NULL;
     }
-
     process->state = PROCESS_READY;
     scheduler_add_thread(thread);
 
@@ -184,7 +174,30 @@ void process_destroy(process_t *process)
 
     if (process->address_space != NULL)
     {
-        vmm_destroy_space((address_space_t *)process->address_space);
+        address_space_t *space =
+            (address_space_t *)process->address_space;
+
+        /*
+        * Release process-owned user stack frames.
+        *
+        * user_destroy() does not destroy the address space
+        * because process owns the address space.
+        */
+        user_destroy(&process->user);
+
+        /*
+        * Release ELF-loaded frames.
+        */
+        elf_release_load(
+            space,
+            &process->elf_load
+        );
+
+        /*
+        * Finally destroy the page-table hierarchy.
+        */
+        vmm_destroy_space(space);
+
         process->address_space = NULL;
     }
 

@@ -4,9 +4,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "../memory/vmm.h"
-#include <stdint.h>
-#include <stdbool.h>
-#include "../memory/vmm.h"
 
 typedef struct
 {
