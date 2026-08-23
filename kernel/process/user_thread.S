@@ -1,18 +1,15 @@
 .section .text
 
 .global user_thread_enter
-.extern user_thread_trampoline
+.type user_thread_enter, @function
 
 /*
- * Enter Ring 3 using the current thread's saved user_entry
- * and user_stack.
+ * Enter Ring 3.
  *
- * The C trampoline supplies:
+ * RAX = user RIP
+ * RDX = user RSP
  *
- *   RAX = user entry
- *   RDX = user stack
- *
- * We construct the exact stack expected by IRETQ:
+ * iretq expects:
  *
  *   SS
  *   RSP
@@ -25,19 +22,21 @@ user_thread_enter:
 
     cli
 
-    /* User SS = 0x33 */
+    /* User data selector: 0x30 | RPL3 = 0x33 */
     pushq $0x33
 
-    /* User RSP */
+    /* User stack */
     pushq %rdx
 
-    /* RFLAGS: IF enabled */
+    /* IF=1, reserved bit 1 set */
     pushq $0x202
 
-    /* User CS = 0x2B */
+    /* User code selector: 0x28 | RPL3 = 0x2B */
     pushq $0x2B
 
-    /* User RIP */
+    /* User entry point */
     pushq %rax
 
     iretq
+
+.section .note.GNU-stack,"",@progbits

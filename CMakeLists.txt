@@ -121,6 +121,7 @@ add_executable(kernel.elf
     kernel/process/context.c
     kernel/process/switch.S
     kernel/process/idle.c
+    kernel/process/user_thread.S
 
 )
 
