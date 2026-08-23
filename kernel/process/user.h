@@ -18,7 +18,6 @@ typedef struct
 
 int user_prepare(user_process_t* process, uint64_t entry);
 void user_destroy(user_process_t* process);
-void user_enter(user_process_t* process);
 void user_thread_enter(void);
 
 int user_prepare_in_space(

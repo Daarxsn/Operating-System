@@ -25,8 +25,8 @@ void user_thread_bootstrap(void)
     }
 
     /*
-     * The process address space must become active before
-     * attempting the Ring-3 transition.
+     * Activate the process address space before entering
+     * Ring 3.
      */
     vmm_switch_space(
         (address_space_t *)thread->owner->address_space
@@ -40,6 +40,17 @@ void user_thread_bootstrap(void)
      */
     uint64_t entry = thread->user_entry;
     uint64_t stack = thread->user_stack;
+
+    if (entry == 0 ||
+        stack == 0 ||
+        entry >= 0x0000800000000000ULL ||
+        stack >= 0x0000800000000000ULL)
+    {
+        scheduler_exit_current();
+
+        for (;;)
+            __asm__ volatile("hlt");
+    }
 
     __asm__ volatile(
         "movq %[entry], %%rax\n\t"
@@ -326,87 +337,3 @@ void user_destroy(
  * Enter User Mode
  * --------------------------------------------------------
  */
-
-void user_enter(
-    user_process_t* process)
-{
-    if (!process ||
-        !process->address_space ||
-        !process->entry ||
-        !process->stack)
-    {
-        return;
-    }
-
-    /*
-     * Never enter an unmapped/non-user/non-executable entry point.
-     * user_prepare() creates the stack, while the ELF loader is
-     * responsible for mapping the program image.
-     */
-    uint64_t entry_flags =
-        vmm_get_page_flags(
-            process->address_space,
-            process->entry & ~(uint64_t)(PAGE_SIZE - 1)
-        );
-
-    if ((entry_flags & VMM_PRESENT) == 0 ||
-        (entry_flags & VMM_USER) == 0 ||
-        (entry_flags & VMM_NX) != 0)
-    {
-        return;
-    }
-
-    /*
-     * The initial user stack must be a writable user mapping.
-     */
-    uint64_t stack_flags =
-        vmm_get_page_flags(
-            process->address_space,
-            process->stack & ~(uint64_t)(PAGE_SIZE - 1)
-        );
-
-    if ((stack_flags & VMM_PRESENT) == 0 ||
-        (stack_flags & VMM_USER) == 0 ||
-        (stack_flags & VMM_WRITABLE) == 0)
-    {
-        return;
-    }
-
-    /*
-     * Switch to the user's address space.
-     */
-    vmm_switch_space(
-        process->address_space
-    );
-
-    /*
-     * User code/data descriptors are installed by gdt_init().
-     *
-     * GDT:
-     *
-     *   0x2B = user code
-     *   0x33 = user data
-     */
-
-    __asm__ volatile(
-        "cli\n\t"
-
-        "pushq $0x33\n\t"          /* user SS */
-        "pushq %[stack]\n\t"
-
-        "pushfq\n\t"
-        "orq $0x200, (%%rsp)\n\t"  /* IF */
-
-        "pushq $0x2B\n\t"          /* user CS */
-        "pushq %[entry]\n\t"
-
-        "iretq\n\t"
-
-        :
-        : [stack] "r" (process->stack),
-          [entry] "r" (process->entry)
-        : "memory"
-    );
-
-    __builtin_unreachable();
-}
