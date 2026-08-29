@@ -53,8 +53,11 @@ jobs:
           cmake --install xyris-sdk/build --prefix xyris-sdk/install
           test -f xyris-sdk/install/lib/libxyris-sdk-core.a
           test -f xyris-sdk/install/lib/libxyris-sdk-process.a
+          test -d xyris-sdk/install/include/xyris
           test -f xyris-sdk/install/include/xyris/core.h
           test -f xyris-sdk/install/include/xyris/process.h
+          test -f xyris-sdk/install/include/xyris/thread.h
+          test -f xyris-sdk/install/include/xyris/memory.h
           test -f xyris-sdk/install/include/xyris/abi/xyris_abi.h
       - name: Check for whitespace errors
         run: git diff --check
