@@ -48,6 +48,45 @@ jobs:
         run: |
           git diff --check
 
+  sdk-core:
+    name: Build and Test Xyris SDK Core
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install SDK build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc g++
+
+      - name: Configure SDK
+        run: |
+          cmake -S xyris-sdk \\
+                -B xyris-sdk/build \\
+                -G Ninja \\
+                -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build SDK Core
+        run: |
+          cmake --build xyris-sdk/build
+
+      - name: Run SDK Core tests
+        run: |
+          ctest --test-dir xyris-sdk/build --output-on-failure
+
+      - name: Check SDK installation manifest
+        run: |
+          cmake --install xyris-sdk/build --prefix xyris-sdk/install
+          test -f xyris-sdk/install/lib/libxyris-sdk-core.a
+          test -f xyris-sdk/install/include/xyris/core.h
+          test -f xyris-sdk/install/include/xyris/abi/xyris_abi.h
+
+      - name: Check for whitespace errors
+        run: |
+          git diff --check
+
   kernel-build:
     name: Build XyrisOS Kernel
     runs-on: ubuntu-latest
@@ -110,6 +149,7 @@ jobs:
       - simulator-tests
       - kernel-build
       - validation
+      - sdk-core
 
     steps:
       - name: Report successful CI completion
