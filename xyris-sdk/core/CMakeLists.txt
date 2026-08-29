@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
+include(CTest)
+
 project(XyrisSDKCore C)
 
 set(CMAKE_C_STANDARD 23)
@@ -61,3 +63,13 @@ install(DIRECTORY
     ${CMAKE_CURRENT_SOURCE_DIR}/../../abi/include/xyris/abi
     DESTINATION include/xyris
 )
+
+
+if(BUILD_TESTING)
+    add_test(NAME xyris-sdk-core-c-header-test
+        COMMAND xyris-sdk-core-c-header-test
+    )
+    add_test(NAME xyris-sdk-core-cpp-header-test
+        COMMAND xyris-sdk-core-cpp-header-test
+    )
+endif()
