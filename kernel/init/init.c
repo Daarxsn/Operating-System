@@ -13,6 +13,7 @@
 #include "../cpu/isr.h"
 #include "../cpu/pic.h"
 #include "../cpu/pit.h"
+#include "../syscall/syscall.h"
 
 /* Process */
 
