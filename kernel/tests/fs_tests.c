@@ -136,7 +136,7 @@ void run_filesystem_tests(void)
 
     fd =
         (int)syscall_dispatch(
-            SYS_OPEN,
+            XYRIS_SYS_OPEN,
             (uint64_t)"/etc/xyris.txt",
             0,
             0,
@@ -157,7 +157,7 @@ void run_filesystem_tests(void)
     read_count =
         fd >= 0
             ? (int)syscall_dispatch(
-                SYS_READ,
+                XYRIS_SYS_READ,
                 (uint64_t)fd,
                 (uint64_t)buffer,
                 sizeof(buffer) - 1,
@@ -179,7 +179,7 @@ void run_filesystem_tests(void)
     {
         uint64_t result =
             syscall_dispatch(
-                SYS_CLOSE,
+                XYRIS_SYS_CLOSE,
                 (uint64_t)fd,
                 0,
                 0,
@@ -263,7 +263,8 @@ void run_filesystem_tests(void)
         (uint64_t)before.free_pages
     );
 
-    debug_print("\n");
+    debug_print("
+");
 
 
     debug_print(
@@ -274,7 +275,8 @@ void run_filesystem_tests(void)
         (uint64_t)before.used_pages
     );
 
-    debug_print("\n");
+    debug_print("
+");
 
 
     user_process_t user;
@@ -311,7 +313,8 @@ void run_filesystem_tests(void)
         (uint64_t)after.free_pages
     );
 
-    debug_print("\n");
+    debug_print("
+");
 
 
     debug_print(
@@ -322,7 +325,8 @@ void run_filesystem_tests(void)
         (uint64_t)after.used_pages
     );
 
-    debug_print("\n");
+    debug_print("
+");
 
 
     test_ok(
