@@ -31,3 +31,15 @@ target_compile_definitions(xyris-sdk-core
     PUBLIC
         XYRIS_SDK_CORE=1
 )
+
+add_executable(xyris-sdk-core-c-header-test
+    tests/core_header_test.c
+)
+
+target_link_libraries(xyris-sdk-core-c-header-test PRIVATE xyris-sdk-core)
+
+add_executable(xyris-sdk-core-cpp-header-test
+    tests/core_header_test.cpp
+)
+
+target_link_libraries(xyris-sdk-core-cpp-header-test PRIVATE xyris-sdk-core)
