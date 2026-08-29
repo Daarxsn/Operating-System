@@ -43,3 +43,11 @@ add_executable(xyris-sdk-core-cpp-header-test
 )
 
 target_link_libraries(xyris-sdk-core-cpp-header-test PRIVATE xyris-sdk-core)
+
+install(TARGETS xyris-sdk-core
+    ARCHIVE DESTINATION lib
+)
+
+install(DIRECTORY include/
+    DESTINATION include
+)
