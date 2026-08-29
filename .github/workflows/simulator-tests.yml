@@ -63,9 +63,9 @@ jobs:
 
       - name: Configure SDK
         run: |
-          cmake -S xyris-sdk \\
-                -B xyris-sdk/build \\
-                -G Ninja \\
+          cmake -S xyris-sdk \
+                -B xyris-sdk/build \
+                -G Ninja \
                 -DCMAKE_BUILD_TYPE=Debug
 
       - name: Build SDK Core
