@@ -61,6 +61,7 @@ jobs:
           test -f xyris-sdk/install/include/xyris/filesystem.h
           test -f xyris-sdk/install/include/xyris/ipc.h
           test -f xyris-sdk/install/include/xyris/events.h
+          test -f xyris-sdk/install/include/xyris/timers.h
           test -f xyris-sdk/install/include/xyris/abi/xyris_abi.h
       - name: Check for whitespace errors
         run: git diff --check
