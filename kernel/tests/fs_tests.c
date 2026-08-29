@@ -263,8 +263,7 @@ void run_filesystem_tests(void)
         (uint64_t)before.free_pages
     );
 
-    debug_print("
-");
+    debug_print("\n");
 
 
     debug_print(
@@ -275,8 +274,7 @@ void run_filesystem_tests(void)
         (uint64_t)before.used_pages
     );
 
-    debug_print("
-");
+    debug_print("\n");
 
 
     user_process_t user;
@@ -313,8 +311,7 @@ void run_filesystem_tests(void)
         (uint64_t)after.free_pages
     );
 
-    debug_print("
-");
+    debug_print("\n");
 
 
     debug_print(
@@ -325,8 +322,7 @@ void run_filesystem_tests(void)
         (uint64_t)after.used_pages
     );
 
-    debug_print("
-");
+    debug_print("\n");
 
 
     test_ok(
