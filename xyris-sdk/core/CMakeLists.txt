@@ -25,6 +25,8 @@ target_compile_options(xyris-sdk-core PRIVATE
     -fno-pic
     -fno-pie
     -mno-red-zone
+    -m64
+    -march=x86-64
 )
 
 target_compile_definitions(xyris-sdk-core
@@ -44,10 +46,18 @@ add_executable(xyris-sdk-core-cpp-header-test
 
 target_link_libraries(xyris-sdk-core-cpp-header-test PRIVATE xyris-sdk-core)
 
+target_link_options(xyris-sdk-core-c-header-test PRIVATE -no-pie)
+target_link_options(xyris-sdk-core-cpp-header-test PRIVATE -no-pie)
+
 install(TARGETS xyris-sdk-core
     ARCHIVE DESTINATION lib
 )
 
 install(DIRECTORY include/
     DESTINATION include
+)
+
+install(DIRECTORY
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../abi/include/xyris/abi
+    DESTINATION include/xyris
 )
