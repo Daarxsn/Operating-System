@@ -9,7 +9,7 @@
  * instead of embedding syscall numbers or private kernel interfaces.
  */
 
-#include "../../../abi/include/xyris/abi/xyris_abi.h"
+#include <xyris/abi/xyris_abi.h>
 
 #ifdef __cplusplus
 extern "C" {
