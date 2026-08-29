@@ -5,5 +5,6 @@
 #include "version.h"
 #include "types.h"
 #include "errors.h"
+#include "syscalls.h"
 
 #endif /* XYRIS_ABI_H */

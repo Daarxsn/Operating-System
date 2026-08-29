@@ -4,18 +4,16 @@
 
 #include <stdint.h>
 
-void syscall_interrupt_handler(
-    registers_t* regs
-)
+void syscall_interrupt_handler(registers_t *regs)
 {
-    uint64_t result =
+    xyris_syscall_result_t result =
         syscall_dispatch(
-            regs->rax,
-            regs->rdi,
-            regs->rsi,
-            regs->rdx,
-            regs->rcx
+            (xyris_syscall_number_t)regs->rax,
+            (xyris_syscall_arg_t)regs->rdi,
+            (xyris_syscall_arg_t)regs->rsi,
+            (xyris_syscall_arg_t)regs->rdx,
+            (xyris_syscall_arg_t)regs->rcx
         );
 
-    regs->rax = result;
+    regs->rax = (uint64_t)result;
 }
