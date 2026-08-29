@@ -2,7 +2,7 @@
 
 **Phase:** 6 — Userspace & System Integration  
 **Member:** M10 — Purvesh — Xyris Platform, ABI & SDK Architect  
-**Status:** Initial implementation baseline
+**Status:** v0.1 foundation implemented; service domains reserved
 
 ## 1. Purpose
 
@@ -24,7 +24,7 @@ The public ABI must not expose private kernel structure layouts.
 
 ## 2. Scope of v0.1
 
-v0.1 establishes the **fundamental ABI type and object model**. It does not yet freeze syscall numbers, syscall register conventions, or service-specific operation structures. Those belong to Workstream 7.2 and later ABI sections.
+v0.1 establishes the **fundamental ABI type, object, error, versioning, and user-memory contracts**. The first syscall contract is defined separately by Workstream 7.2.
 
 The service domains reserved for the full Xyris ABI are:
 
@@ -162,13 +162,11 @@ A compatible SDK release may target an existing ABI without requiring a new ABI 
 
 Stable ABI interfaces are extended rather than silently redefined. Deprecated interfaces remain documented until the defined removal policy permits removal.
 
-## 10. Current repository alignment
+## 10. Current implementation boundary
 
-The current repository contains kernel-native fixed-width types, process/thread identifiers, file descriptors, capability/resource foundations, VFS, memory management, an ELF framework, and a syscall dispatcher.
+The repository currently provides the ABI foundation and a first syscall implementation for `read`, `write`, `open`, `close`, and `exit`.
 
-The current syscall implementation is still an early interface with `read`, `write`, `open`, `close`, and `exit`. Therefore this document intentionally does **not** assign final syscall numbers or freeze the CPU register calling convention. Those decisions belong to Workstream 7.2.
-
-Likewise, the existence of a public ABI type does not imply that the corresponding userspace service is already executable end-to-end. Ring 3 entry, complete ELF loading, and userspace runtime integration remain implementation dependencies.
+The full service domains remain reserved, not yet stable userspace APIs: process management, thread management, memory mapping, directories, IPC, events, timers, devices, networking, and security/capability operations. This distinction is intentional: declaring these domains in the architecture does not claim that their userspace contracts already exist.
 
 ## 11. Public/private boundary
 
