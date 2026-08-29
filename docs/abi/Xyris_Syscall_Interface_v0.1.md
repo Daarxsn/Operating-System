@@ -175,11 +175,14 @@ Those domains remain reserved for subsequent M10/kernel integration work.
 
 ## 11. Validation
 
-The syscall implementation must be validated at three levels:
+The current implementation is validated at the repository level by:
 
-1. ABI header compile tests.
-2. Kernel build with the public ABI definitions.
-3. End-to-end userspace execution once Ring 3 entry and complete ELF loading are available.
+1. Kernel compilation with the public ABI definitions and `-Wall -Wextra -Werror`.
+2. Kernel filesystem tests that exercise the syscall dispatcher for `open`, `read`, and `close`.
+3. XyrisSim build/test validation.
+4. Full XyrisOS CI validation.
+
+Dedicated standalone C/C++ public-header compilation tests and complete Ring 3 application execution remain appropriate follow-up validation for SDK/userspace integration.
 
 The final M10 acceptance test remains:
 
