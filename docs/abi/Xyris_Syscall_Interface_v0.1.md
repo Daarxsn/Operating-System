@@ -2,7 +2,7 @@
 
 **Phase:** 6 — Userspace & System Integration  
 **Member:** M10 — Purvesh — Xyris Platform, ABI & SDK Architect  
-**Status:** Initial implementation baseline
+**Status:** v0.1 implemented and kernel-integrated
 
 ## 1. Purpose
 
@@ -151,7 +151,15 @@ This v0.1 mapping is intentionally conservative:
 
 Future filesystem and process APIs may expose more precise statuses once their kernel semantics distinguish them.
 
-## 8. ABI compatibility
+## 8. Initialization and dispatch
+
+The syscall table is explicitly initialized during kernel boot immediately after ISR initialization and before interrupts are enabled.
+
+`syscall_init()` clears the table and registers the five supported handlers. `syscall_dispatch()` rejects out-of-range numbers and NULL handler slots with `XYRIS_ENOSYS`.
+
+This boot-time initialization is required for the IDT/syscall path to function correctly.
+
+## 9. ABI compatibility
 
 The syscall numbers, calling convention, result width and error namespace are part of the v0.1 contract.
 
@@ -159,13 +167,13 @@ Future additions must not change the meaning of existing syscall numbers.
 
 A future incompatible calling convention requires a new ABI major version or an explicitly versioned syscall entry mechanism.
 
-## 9. Scope boundary
+## 10. Scope boundary
 
 v0.1 intentionally does not expose process creation, threads, memory mapping, IPC, events, timers, devices or networking because the current syscall layer does not yet provide stable implementations for those services.
 
 Those domains remain reserved for subsequent M10/kernel integration work.
 
-## 10. Validation
+## 11. Validation
 
 The syscall implementation must be validated at three levels:
 
