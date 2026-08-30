@@ -2,7 +2,6 @@
 
 #include "../fs/file.h"
 #include "../process/process.h"
-#include "../process/thread.h"
 #include "../process/scheduler.h"
 #include "../memory/vmm.h"
 
@@ -13,99 +12,48 @@
 #define USER_ADDRESS_LIMIT 0x0000800000000000ULL
 #define SYSCALL_MAX_PATH   64
 
-/*
- * ------------------------------------------------------------
- * System Call Table
- * ------------------------------------------------------------
- */
+static syscall_handler_t syscall_table[XYRIS_SYS_MAX];
 
-static syscall_handler_t syscall_table[SYS_MAX];
-
-
-/*
- * ------------------------------------------------------------
- * User Pointer Validation
- * ------------------------------------------------------------
- *
- * Kernel-side tests execute while the kernel process is current.
- * Kernel callers are trusted.
- *
- * User-mode callers must have a current non-kernel process and
- * every page in the requested range must be present and marked
- * VMM_USER.
- * ------------------------------------------------------------
- */
-
-static int syscall_validate_user_range(
-    uint64_t address,
-    size_t size,
+static xyris_status_t syscall_validate_user_range(
+    xyris_user_ptr_t address,
+    xyris_size_t size,
     bool write_access)
 {
     if (size == 0)
-        return 1;
+        return XYRIS_OK;
 
-    process_t *process =
-        process_current();
+    process_t *process = process_current();
 
-    /*
-     * Kernel-mode syscall dispatch is trusted. Kernel pointers may
-     * legitimately live in the higher-half address space, so this
-     * check MUST happen before applying the user virtual-address
-     * limit.
-     *
-     * Real user processes continue through the strict range and page
-     * permission validation below.
-     */
+    /* Trusted kernel callers are permitted to use kernel addresses. */
     if (process == NULL || process->kernel_process)
-        return 1;
+        return XYRIS_OK;
 
-    if (address == 0 ||
-        address >= USER_ADDRESS_LIMIT)
-    {
-        return 0;
-    }
+    if (address == 0 || address >= USER_ADDRESS_LIMIT)
+        return XYRIS_EFAULT;
 
     if (size - 1 > USER_ADDRESS_LIMIT - 1 - address)
-        return 0;
+        return XYRIS_EFAULT;
 
-    uint64_t end =
-        address + (uint64_t)size - 1;
-
+    uint64_t end = address + size - 1;
     if (process->address_space == NULL)
-        return 0;
+        return XYRIS_EFAULT;
 
-    uint64_t page =
-        address & ~(uint64_t)(PAGE_SIZE - 1);
-
-    uint64_t last_page =
-        end & ~(uint64_t)(PAGE_SIZE - 1);
+    uint64_t page = address & ~(uint64_t)(PAGE_SIZE - 1);
+    uint64_t last_page = end & ~(uint64_t)(PAGE_SIZE - 1);
 
     while (1)
     {
-        uint64_t flags =
-            vmm_get_page_flags(
-                (address_space_t *)process->address_space,
-                page
-            );
+        uint64_t flags = vmm_get_page_flags(
+            (address_space_t *)process->address_space,
+            page
+        );
 
         if ((flags & VMM_PRESENT) == 0 ||
             (flags & VMM_USER) == 0)
-        {
-            return 0;
-        }
+            return XYRIS_EFAULT;
 
-        /*
-         * A read syscall writes into the caller's buffer.
-         * A write syscall reads from the caller's buffer.
-         *
-         * The current VMM interface exposes writability as the
-         * page permission we need for kernel writes.
-         */
-        if (write_access &&
-            (flags & VMM_WRITABLE) == 0)
-        {
-            return 0;
-        }
+        if (write_access && (flags & VMM_WRITABLE) == 0)
+            return XYRIS_EFAULT;
 
         if (page == last_page)
             break;
@@ -113,70 +61,43 @@ static int syscall_validate_user_range(
         page += PAGE_SIZE;
     }
 
-    return 1;
+    return XYRIS_OK;
 }
 
-
-/*
- * ------------------------------------------------------------
- * Copy User String
- * ------------------------------------------------------------
- */
-
-static int syscall_copy_user_string(
-    uint64_t user_address,
+static xyris_status_t syscall_copy_user_string(
+    xyris_user_ptr_t user_address,
     char *destination,
-    size_t destination_size)
+    xyris_size_t destination_size)
 {
-    if (!destination ||
-        destination_size == 0 ||
-        !syscall_validate_user_range(
-            user_address,
-            1,
-            false))
+    if (!destination || destination_size == 0)
+        return XYRIS_EINVAL;
+
+    for (xyris_size_t i = 0; i < destination_size; ++i)
     {
-        return -1;
-    }
+        xyris_user_ptr_t address = user_address + i;
 
-    for (size_t i = 0; i < destination_size; ++i)
-    {
-        uint64_t address =
-            user_address + i;
+        xyris_status_t status =
+            syscall_validate_user_range(address, 1, false);
 
-        if (!syscall_validate_user_range(
-                address,
-                1,
-                false))
-        {
-            return -1;
-        }
+        if (status != XYRIS_OK)
+            return status;
 
-        char c =
-            *(const char *)(uintptr_t)address;
-
+        char c = *(const char *)(uintptr_t)address;
         destination[i] = c;
 
         if (c == '\0')
-            return 0;
+            return XYRIS_OK;
     }
 
     destination[destination_size - 1] = '\0';
-
-    return -1;
+    return XYRIS_EOVERFLOW;
 }
 
-
-/*
- * ------------------------------------------------------------
- * File System Syscalls
- * ------------------------------------------------------------
- */
-
-static uint64_t sys_open(
-    uint64_t path,
-    uint64_t unused1,
-    uint64_t unused2,
-    uint64_t unused3)
+static xyris_syscall_result_t sys_open(
+    xyris_syscall_arg_t path,
+    xyris_syscall_arg_t unused1,
+    xyris_syscall_arg_t unused2,
+    xyris_syscall_arg_t unused3)
 {
     (void)unused1;
     (void)unused2;
@@ -184,166 +105,160 @@ static uint64_t sys_open(
 
     char kernel_path[SYSCALL_MAX_PATH];
 
-    if (syscall_copy_user_string(
-            path,
-            kernel_path,
-            sizeof(kernel_path)) != 0)
-    {
-        return (uint64_t)-1;
-    }
+    xyris_status_t status =
+        syscall_copy_user_string(path, kernel_path, sizeof(kernel_path));
 
-    return (uint64_t)open(kernel_path);
+    if (status != XYRIS_OK)
+        return status;
+
+    int fd = open(kernel_path);
+    if (fd < 0)
+        return XYRIS_ENOTFOUND;
+
+    return (xyris_syscall_result_t)fd;
 }
 
-
-static uint64_t sys_close(
-    uint64_t fd,
-    uint64_t unused1,
-    uint64_t unused2,
-    uint64_t unused3)
+static xyris_syscall_result_t sys_close(
+    xyris_syscall_arg_t fd,
+    xyris_syscall_arg_t unused1,
+    xyris_syscall_arg_t unused2,
+    xyris_syscall_arg_t unused3)
 {
     (void)unused1;
     (void)unused2;
     (void)unused3;
 
-    return (uint64_t)close((int)fd);
+    if (fd > INT32_MAX)
+        return XYRIS_EBADHANDLE;
+
+    return close((int)fd) == 0
+        ? XYRIS_OK
+        : XYRIS_EBADHANDLE;
 }
 
-
-static uint64_t sys_read(
-    uint64_t fd,
-    uint64_t buffer,
-    uint64_t size,
-    uint64_t unused)
+static xyris_syscall_result_t sys_read(
+    xyris_syscall_arg_t fd,
+    xyris_syscall_arg_t buffer,
+    xyris_syscall_arg_t size,
+    xyris_syscall_arg_t unused)
 {
     (void)unused;
 
-    if (size > (uint64_t)(size_t)-1)
-        return (uint64_t)-1;
+    xyris_status_t status =
+        syscall_validate_user_range(buffer, size, true);
 
-    if (!syscall_validate_user_range(
-            buffer,
-            (size_t)size,
-            true))
-    {
-        return (uint64_t)-1;
-    }
+    if (status != XYRIS_OK)
+        return status;
 
-    return (uint64_t)read(
+    if (fd > INT32_MAX || size > SIZE_MAX)
+        return XYRIS_EINVAL;
+
+    int result = read(
         (int)fd,
         (void *)(uintptr_t)buffer,
         (size_t)size
     );
+
+    return result < 0
+        ? XYRIS_EBADHANDLE
+        : (xyris_syscall_result_t)result;
 }
 
-
-static uint64_t sys_write(
-    uint64_t fd,
-    uint64_t buffer,
-    uint64_t size,
-    uint64_t unused)
+static xyris_syscall_result_t sys_write(
+    xyris_syscall_arg_t fd,
+    xyris_syscall_arg_t buffer,
+    xyris_syscall_arg_t size,
+    xyris_syscall_arg_t unused)
 {
     (void)unused;
 
-    if (!syscall_validate_user_range(
-            buffer,
-            (size_t)size,
-            false))
-    {
-        return (uint64_t)-1;
-    }
+    xyris_status_t status =
+        syscall_validate_user_range(buffer, size, false);
 
-    return (uint64_t)write(
+    if (status != XYRIS_OK)
+        return status;
+
+    if (fd > INT32_MAX || size > SIZE_MAX)
+        return XYRIS_EINVAL;
+
+    int result = write(
         (int)fd,
         (const void *)(uintptr_t)buffer,
         (size_t)size
     );
+
+    return result < 0
+        ? XYRIS_EBADHANDLE
+        : (xyris_syscall_result_t)result;
 }
 
-
-/*
- * ------------------------------------------------------------
- * Process Syscalls
- * ------------------------------------------------------------
- */
-
-static uint64_t sys_exit(
-    uint64_t code,
-    uint64_t unused1,
-    uint64_t unused2,
-    uint64_t unused3)
+static xyris_syscall_result_t sys_exit(
+    xyris_syscall_arg_t code,
+    xyris_syscall_arg_t unused1,
+    xyris_syscall_arg_t unused2,
+    xyris_syscall_arg_t unused3)
 {
-    (void)code;
     (void)unused1;
     (void)unused2;
     (void)unused3;
 
-    process_t *process =
-        process_current();
+    process_t *process = process_current();
 
+<<<<<<< HEAD
     /*
      * Kernel code must not accidentally terminate the kernel
      * scheduler through a syscall test.
      */
     if (process != NULL)
         process->exit_code = (int)code;
+=======
+    if (process == NULL || process->kernel_process)
+        return XYRIS_EPERM;
+>>>>>>> 9601b4775b8e7e0e97a2cb6d4ae7396e41de1c0c
 
+    process->exit_code = (int32_t)code;
+    process->exit_requested = true;
     scheduler_exit_current();
 
+<<<<<<< HEAD
     /*
     * scheduler_exit_current() switches away from the current
     * thread.
     * This is only a defensive fallback.
     */
     return (uint64_t)-1;
+=======
+    /* Defensive fallback if the scheduler unexpectedly returns. */
+    return XYRIS_EBADSTATE;
+>>>>>>> 9601b4775b8e7e0e97a2cb6d4ae7396e41de1c0c
 }
-
-
-/*
- * ------------------------------------------------------------
- * Initialization
- * ------------------------------------------------------------
- */
 
 void syscall_init(void)
 {
-    for (size_t i = 0; i < SYS_MAX; ++i)
+    for (xyris_size_t i = 0; i < XYRIS_SYS_MAX; ++i)
         syscall_table[i] = NULL;
 
-    syscall_table[SYS_READ]  = sys_read;
-    syscall_table[SYS_WRITE] = sys_write;
-    syscall_table[SYS_OPEN]  = sys_open;
-    syscall_table[SYS_CLOSE] = sys_close;
-    syscall_table[SYS_EXIT]  = sys_exit;
+    syscall_table[XYRIS_SYS_READ] = sys_read;
+    syscall_table[XYRIS_SYS_WRITE] = sys_write;
+    syscall_table[XYRIS_SYS_OPEN] = sys_open;
+    syscall_table[XYRIS_SYS_CLOSE] = sys_close;
+    syscall_table[XYRIS_SYS_EXIT] = sys_exit;
 }
 
-
-/*
- * ------------------------------------------------------------
- * Dispatcher
- * ------------------------------------------------------------
- */
-
-uint64_t syscall_dispatch(
-    uint64_t number,
-    uint64_t arg1,
-    uint64_t arg2,
-    uint64_t arg3,
-    uint64_t arg4)
+xyris_syscall_result_t syscall_dispatch(
+    xyris_syscall_number_t number,
+    xyris_syscall_arg_t arg1,
+    xyris_syscall_arg_t arg2,
+    xyris_syscall_arg_t arg3,
+    xyris_syscall_arg_t arg4)
 {
-    if (number >= SYS_MAX)
-        return (uint64_t)-1;
+    if (number >= XYRIS_SYS_MAX)
+        return XYRIS_ENOSYS;
 
-    syscall_handler_t handler =
-        syscall_table[number];
+    syscall_handler_t handler = syscall_table[number];
 
     if (handler == NULL)
-        return (uint64_t)-1;
+        return XYRIS_ENOSYS;
 
-    return handler(
-        arg1,
-        arg2,
-        arg3,
-        arg4
-    );
+    return handler(arg1, arg2, arg3, arg4);
 }

@@ -4,89 +4,100 @@ on:
   push:
     branches:
       - main
-
   pull_request:
     branches:
       - main
-
   workflow_dispatch:
 
 jobs:
   simulator-tests:
     name: Build and Test XyrisSim
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Install simulator dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build gcc
-
       - name: Configure simulator
         run: |
-          cmake -S simulator \
-                -B simulator/build \
-                -G Ninja \
-                -DCMAKE_BUILD_TYPE=Debug
-
+          cmake -S simulator -B simulator/build -G Ninja -DCMAKE_BUILD_TYPE=Debug
       - name: Build simulator
-        run: |
-          cmake --build simulator/build
-
+        run: cmake --build simulator/build
       - name: Run simulator test suite
-        run: |
-          ctest --test-dir simulator/build --output-on-failure
-
+        run: ctest --test-dir simulator/build --output-on-failure
       - name: Run simulator test script
-        run: |
-          ./scripts/simulator-test.sh
-
+        run: ./scripts/simulator-test.sh
       - name: Check for whitespace errors
+        run: git diff --check
+
+  sdk-core:
+    name: Build and Test Xyris SDK Core
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install SDK build dependencies
         run: |
-          git diff --check
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc g++
+      - name: Configure SDK
+        run: cmake -S xyris-sdk -B xyris-sdk/build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+      - name: Build SDK
+        run: cmake --build xyris-sdk/build
+      - name: Run SDK tests
+        run: ctest --test-dir xyris-sdk/build --output-on-failure
+      - name: Check SDK installation manifest
+        run: |
+          cmake --install xyris-sdk/build --prefix xyris-sdk/install
+          test -f xyris-sdk/install/lib/libxyris-sdk-core.a
+          test -f xyris-sdk/install/lib/libxyris-sdk-process.a
+          test -d xyris-sdk/install/include/xyris
+          test -f xyris-sdk/install/include/xyris/core.h
+          test -f xyris-sdk/install/include/xyris/process.h
+          test -f xyris-sdk/install/include/xyris/thread.h
+          test -f xyris-sdk/install/include/xyris/memory.h
+          test -f xyris-sdk/install/include/xyris/filesystem.h
+          test -f xyris-sdk/install/include/xyris/ipc.h
+          test -f xyris-sdk/install/include/xyris/events.h
+          test -f xyris-sdk/install/include/xyris/timers.h
+          test -f xyris-sdk/install/include/xyris/devices.h
+          test -f xyris-sdk/install/include/xyris/networking.h
+          test -f xyris-sdk/install/include/xyris/security.h
+          test -f xyris-sdk/install/include/xyris/abi/xyris_abi.h
+      - name: Check for whitespace errors
+        run: git diff --check
 
   kernel-build:
     name: Build XyrisOS Kernel
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Install kernel build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build gcc
-
       - name: Build XyrisOS kernel
-        run: |
-          ./scripts/build.sh
-
+        run: ./scripts/build.sh
       - name: Check for whitespace errors
-        run: |
-          git diff --check
+        run: git diff --check
 
   validation:
     name: Full XyrisOS Validation
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Install validation dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build gcc binutils xorriso qemu-system-x86
-
       - name: Run full validation pipeline
         run: |
           chmod +x scripts/validate.sh
           ./scripts/validate.sh
-
       - name: Upload XyrisOS ISO
         if: always()
         uses: actions/upload-artifact@v4
@@ -94,7 +105,6 @@ jobs:
           name: XyrisOS-ISO
           path: XyrisOS.iso
           if-no-files-found: warn
-
       - name: Upload QEMU runtime log
         if: always()
         uses: actions/upload-artifact@v4
@@ -110,7 +120,7 @@ jobs:
       - simulator-tests
       - kernel-build
       - validation
-
+      - sdk-core
     steps:
       - name: Report successful CI completion
         run: |
@@ -119,5 +129,6 @@ jobs:
           echo "=========================================="
           echo "Simulator build: PASSED"
           echo "Simulator tests: PASSED"
+          echo "SDK build/tests: PASSED"
           echo "Kernel build:    PASSED"
           echo "Code quality:    PASSED"
