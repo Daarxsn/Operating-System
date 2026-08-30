@@ -60,6 +60,10 @@
 #include "logger/logger.h"
 #include "string.h"
 
+extern volatile uint64_t context_switch_if0_count;
+extern const unsigned char _binary_test_elf_start[];
+extern const unsigned char _binary_test_elf_end[];
+extern const unsigned char _binary_test_elf_size[];
 
 /* -------------------------------------------------
    Test Thread Declarations
@@ -70,11 +74,36 @@ static void thread_b(void);
 static void preemption_test_a(void);
 static void preemption_test_b(void);
 
+static void context_test_a(void);
+static void context_test_b(void);
+static void context_test_coordinator(void);
+static volatile uint64_t context_test_initial_if0_count = 0;
+
 /* Shared state for the timer-preemption runtime test.  The test threads
  * deliberately never call scheduler_yield().  Thread A waits for B to run;
  * B can only run before A finishes if timer-driven preemption is working. */
 static volatile bool preemption_test_b_started = false;
 static volatile bool preemption_test_a_passed = false;
+
+/* -------------------------------------------------
+   Context-Switch Runtime Test State
+------------------------------------------------- */
+
+#define CONTEXT_STRESS_ITERATIONS 10000ULL
+
+static volatile uint64_t context_test_a_runs = 0;
+static volatile uint64_t context_test_b_runs = 0;
+static volatile uint64_t context_test_failures = 0;
+
+static volatile bool context_test_a_done = false;
+static volatile bool context_test_b_done = false;
+static volatile bool context_test_complete = false;
+
+static const uint64_t context_test_a_seed =
+    0x1111111111111111ULL;
+
+static const uint64_t context_test_b_seed =
+    0xAAAAAAAAAAAAAAAAULL;
 
 /* -------------------------------------------------
    Limine Requests
@@ -782,6 +811,8 @@ static void preemption_test_a(void)
     uint64_t start_irq0 = irq0_debug_get_count();
     uint64_t start_pit_handlers = pit_debug_get_handler_count();
     uint64_t start_scheduler_ticks = scheduler_debug_get_tick_count();
+    uint64_t start_if0_context_switches =
+    context_switch_if0_count;
     uint64_t start_rflags = 0;
 
     __asm__ volatile("pushfq; popq %0" : "=r"(start_rflags));
@@ -842,6 +873,9 @@ static void preemption_test_a(void)
         pit_debug_get_handler_count() - start_pit_handlers;
     uint64_t scheduler_tick_delta =
         scheduler_debug_get_tick_count() - start_scheduler_ticks;
+        uint64_t if0_context_switch_delta =
+        context_switch_if0_count -
+        start_if0_context_switches;
 
     uint8_t end_pic_irr = pic_debug_get_master_irr();
     debug_print("Preemption Test: Final PIC Master IRR = ");
@@ -865,6 +899,10 @@ static void preemption_test_a(void)
     {
         boot_step_fail("Preemption Test: PIT Handler Ran, But scheduler_tick Did Not Run");
     }
+    else if (if0_context_switch_delta == 0)
+    {
+        boot_step_fail("Preemption Test: IRQ Context Did Not Save IF=0");
+    }
     else
     {
         boot_step_fail("Preemption Test: IRQ0/PIT/Scheduler Ran, But Thread B Did Not Run");
@@ -885,6 +923,354 @@ static void preemption_test_b(void)
 
     if (preemption_test_a_passed)
         debug_print("Preemption Test: A Observed B\\n");
+}
+
+/* -------------------------------------------------
+   Context-Switch Runtime Test
+------------------------------------------------- */
+
+static void context_test_a(void)
+{
+    volatile uint64_t stack_sentinel =
+        0x13579BDF2468ACE0ULL;
+
+    for (uint64_t i = 0;
+         i < CONTEXT_STRESS_ITERATIONS;
+         ++i)
+    {
+        const uint64_t expected =
+            context_test_a_seed ^ i;
+
+        uint64_t rbx_value;
+        uint64_t r12_value;
+        uint64_t r13_value;
+        uint64_t r14_value;
+        uint64_t r15_value;
+
+        __asm__ volatile(
+            "mov %[value], %%rbx\n"
+            "mov %[value], %%r12\n"
+            "mov %[value], %%r13\n"
+            "mov %[value], %%r14\n"
+            "mov %[value], %%r15\n"
+            :
+            : [value] "r"(expected)
+            : "rbx", "r12", "r13", "r14", "r15"
+        );
+
+        stack_sentinel =
+            (stack_sentinel << 7) ^
+            (stack_sentinel >> 3) ^
+            expected;
+
+        scheduler_yield();
+
+        __asm__ volatile(
+            "mov %%rbx, %[rbx]\n"
+            "mov %%r12, %[r12]\n"
+            "mov %%r13, %[r13]\n"
+            "mov %%r14, %[r14]\n"
+            "mov %%r15, %[r15]\n"
+            : [rbx] "=r"(rbx_value),
+              [r12] "=r"(r12_value),
+              [r13] "=r"(r13_value),
+              [r14] "=r"(r14_value),
+              [r15] "=r"(r15_value)
+        );
+
+        if (rbx_value != expected ||
+            r12_value != expected ||
+            r13_value != expected ||
+            r14_value != expected ||
+            r15_value != expected)
+        {
+            context_test_failures++;
+            context_test_a_done = true;
+
+            debug_print(
+                "CONTEXT TEST A: REGISTER PRESERVATION FAIL\n"
+            );
+
+            return;
+        }
+
+        if (stack_sentinel == 0)
+        {
+            context_test_failures++;
+            context_test_a_done = true;
+
+            debug_print(
+                "CONTEXT TEST A: STACK STATE FAIL\n"
+            );
+
+            return;
+        }
+
+        context_test_a_runs++;
+    }
+
+    context_test_a_done = true;
+
+    debug_print(
+        "CONTEXT TEST A COMPLETE\n"
+    );
+
+    while (!context_test_complete)
+        scheduler_yield();
+}
+
+
+static void context_test_b(void)
+{
+    volatile uint64_t stack_sentinel =
+        0x0FEDCBA987654321ULL;
+
+    for (uint64_t i = 0;
+         i < CONTEXT_STRESS_ITERATIONS;
+         ++i)
+    {
+        const uint64_t expected =
+            context_test_b_seed ^ i;
+
+        uint64_t rbx_value;
+        uint64_t r12_value;
+        uint64_t r13_value;
+        uint64_t r14_value;
+        uint64_t r15_value;
+
+        __asm__ volatile(
+            "mov %[value], %%rbx\n"
+            "mov %[value], %%r12\n"
+            "mov %[value], %%r13\n"
+            "mov %[value], %%r14\n"
+            "mov %[value], %%r15\n"
+            :
+            : [value] "r"(expected)
+            : "rbx", "r12", "r13", "r14", "r15"
+        );
+
+        stack_sentinel =
+            (stack_sentinel << 5) ^
+            (stack_sentinel >> 2) ^
+            expected;
+
+        scheduler_yield();
+
+        __asm__ volatile(
+            "mov %%rbx, %[rbx]\n"
+            "mov %%r12, %[r12]\n"
+            "mov %%r13, %[r13]\n"
+            "mov %%r14, %[r14]\n"
+            "mov %%r15, %[r15]\n"
+            : [rbx] "=r"(rbx_value),
+              [r12] "=r"(r12_value),
+              [r13] "=r"(r13_value),
+              [r14] "=r"(r14_value),
+              [r15] "=r"(r15_value)
+        );
+
+        if (rbx_value != expected ||
+            r12_value != expected ||
+            r13_value != expected ||
+            r14_value != expected ||
+            r15_value != expected)
+        {
+            context_test_failures++;
+            context_test_b_done = true;
+
+            debug_print(
+                "CONTEXT TEST B: REGISTER PRESERVATION FAIL\n"
+            );
+
+            return;
+        }
+
+        if (stack_sentinel == 0)
+        {
+            context_test_failures++;
+            context_test_b_done = true;
+
+            debug_print(
+                "CONTEXT TEST B: STACK STATE FAIL\n"
+            );
+
+            return;
+        }
+
+        context_test_b_runs++;
+    }
+
+    context_test_b_done = true;
+
+    debug_print(
+        "CONTEXT TEST B COMPLETE\n"
+    );
+
+    while (!context_test_complete)
+        scheduler_yield();
+}
+
+
+static void context_test_coordinator(void)
+{
+    context_test_initial_if0_count =
+    context_switch_if0_count;
+
+    while (!context_test_a_done ||
+           !context_test_b_done)
+    {   
+        if (context_test_failures != 0)
+        break;
+
+        scheduler_yield();
+    }
+
+    if (context_test_failures != 0)
+{
+    boot_step_fail(
+        "Context Test: Register/Stack Preservation"
+    );
+}
+else if (context_test_a_runs !=
+             CONTEXT_STRESS_ITERATIONS ||
+         context_test_b_runs !=
+             CONTEXT_STRESS_ITERATIONS)
+{
+    boot_step_fail(
+        "Context Test: Iteration Count"
+    );
+}
+else
+{
+    boot_step_ok(
+        "Context Test: Register Preservation"
+    );
+
+    boot_step_ok(
+        "Context Test: Stack Preservation"
+    );
+
+    boot_step_ok(
+        "Context Test: Context-Switch Stress"
+    );
+
+    boot_step_ok(
+        "Context Test: Cooperative IF Preservation"
+    );
+}
+
+    context_test_complete = true;
+}
+
+static process_t *user_test_process = NULL;
+
+static void launch_user_test_process(void)
+{
+    const unsigned char *elf_start =
+    _binary_test_elf_start;
+
+    size_t elf_size =
+        (size_t)(_binary_test_elf_end -
+                _binary_test_elf_start);
+
+    if (elf_start == NULL || elf_size == 0)
+    {
+        boot_step_fail(
+            "Ring3 Test: Embedded ELF Missing"
+        );
+        return;
+    }
+
+    user_test_process =
+        process_create_user(
+            "ring3-test",
+            elf_start,
+            elf_size
+        );
+
+    if (user_test_process != NULL)
+    {
+        debug_print(
+            "RING3 TEST: process_create_user SUCCESS\n"
+        );
+    }
+    else
+    {
+        debug_print(
+            "RING3 TEST: process_create_user FAILED\n"
+        );
+    }
+
+    if (user_test_process == NULL)
+    {
+        boot_step_fail(
+            "Ring3 Test: process_create_user Failed"
+        );
+        return;
+    }
+
+    if (user_test_process->main_thread == NULL)
+    {
+        boot_step_fail(
+            "Ring3 Test: Main User Thread Missing"
+        );
+        return;
+    }
+
+    boot_step_ok(
+        "Ring3 Test: User Process Created"
+    );
+
+    boot_step_ok(
+        "Ring3 Test: User Thread Scheduled"
+    );
+}
+
+static void user_test_waiter(void)
+{
+    if (user_test_process == NULL)
+    {
+        boot_step_fail(
+            "Ring3 Test: Waiter Has No User Process"
+        );
+        return;
+    }
+
+    int32_t exit_code = -1;
+
+    int result =
+        process_wait(
+            user_test_process->pid,
+            &exit_code
+        );
+
+    if (result != 0)
+    {
+        boot_step_fail(
+            "Ring3 Test: Parent Wait Failed"
+        );
+        return;
+    }
+
+    if (exit_code != 42)
+    {
+        boot_step_fail(
+            "Ring3 Test: Wrong Exit Status"
+        );
+        return;
+    }
+
+    boot_step_ok(
+        "Ring3 Test: Parent Wait"
+    );
+
+    boot_step_ok(
+        "Ring3 Test: Parent Reap"
+    );
+
+    user_test_process = NULL;
+
+    scheduler_exit_current();
 }
 
 /* -------------------------------------------------
@@ -1175,6 +1561,107 @@ else
         "Preemption Test Thread B Created"
     );
 }
+
+thread_t *context_test_a_handle =
+    thread_create(
+        kernel_process,
+        context_test_a,
+        THREAD_PRIORITY_NORMAL
+    );
+
+if (context_test_a_handle == NULL)
+{
+    boot_step_fail(
+        "Failed To Create Context Test Thread A"
+    );
+}
+else
+{
+    scheduler_add_thread(
+        context_test_a_handle
+    );
+
+    boot_step_ok(
+        "Context Test Thread A Created"
+    );
+}
+
+
+thread_t *context_test_b_handle =
+    thread_create(
+        kernel_process,
+        context_test_b,
+        THREAD_PRIORITY_NORMAL
+    );
+
+if (context_test_b_handle == NULL)
+{
+    boot_step_fail(
+        "Failed To Create Context Test Thread B"
+    );
+}
+else
+{
+    scheduler_add_thread(
+        context_test_b_handle
+    );
+
+    boot_step_ok(
+        "Context Test Thread B Created"
+    );
+}
+
+
+thread_t *context_test_coordinator_handle =
+    thread_create(
+        kernel_process,
+        context_test_coordinator,
+        THREAD_PRIORITY_NORMAL
+    );
+
+if (context_test_coordinator_handle == NULL)
+{
+    boot_step_fail(
+        "Failed To Create Context Test Coordinator"
+    );
+}
+else
+{
+    scheduler_add_thread(
+        context_test_coordinator_handle
+    );
+
+    boot_step_ok(
+        "Context Test Coordinator Created"
+    );
+}
+
+debug_print("RING3 TEST: ABOUT TO LAUNCH\n");
+launch_user_test_process();
+thread_t *user_test_waiter_handle =
+    thread_create(
+        kernel_process,
+        user_test_waiter,
+        THREAD_PRIORITY_NORMAL
+    );
+
+if (user_test_waiter_handle == NULL)
+{
+    boot_step_fail(
+        "Failed To Create Ring3 Test Waiter"
+    );
+}
+else
+{
+    scheduler_add_thread(
+        user_test_waiter_handle
+    );
+
+    boot_step_ok(
+        "Ring3 Test Waiter Created"
+    );
+}
+debug_print("RING3 TEST: LAUNCH CALL RETURNED\n");
 
     /* -------------------------------------------------
        Known Platform Limitations

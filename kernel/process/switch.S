@@ -3,6 +3,27 @@
 .global context_switch
 .type context_switch, @function
 
+.global context_switch_last_saved_rflags
+.type context_switch_last_saved_rflags, @object
+.size context_switch_last_saved_rflags, 8
+
+.section .bss
+.align 8
+context_switch_last_saved_rflags:
+    .quad 0
+
+.global context_switch_if0_count
+.type context_switch_if0_count, @object
+.size context_switch_if0_count, 8
+
+.align 8
+context_switch_if0_count:
+    .quad 0
+
+.section .text
+
+
+
 /*
  * XyrisOS x86-64 context switch.
  *
@@ -46,6 +67,7 @@ context_switch:
     pushfq
     popq %rax
     movq %rax, 64(%rdi)
+    movq %rax, context_switch_last_saved_rflags(%rip)
 
     /* Load next context. */
     movq 0(%rsi), %rsp

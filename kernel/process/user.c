@@ -4,6 +4,8 @@
 
 #include "../memory/pmm.h"
 
+extern void debug_print(const char *message);
+
 #define USER_STACK_TOP  0x00007FFFFFF00000ULL
 #define USER_STACK_SIZE (16 * 4096ULL)
 
@@ -11,6 +13,8 @@ extern void user_thread_enter(void);
 
 void user_thread_bootstrap(void)
 {
+    debug_print("RING3 TEST: USER THREAD BOOTSTRAP ENTER\n");
+    
     thread_t *thread = thread_current();
 
     if (!thread ||
@@ -51,6 +55,8 @@ void user_thread_bootstrap(void)
         for (;;)
             __asm__ volatile("hlt");
     }
+
+    debug_print("RING3 TEST: ABOUT TO IRETQ TO RING3\n");
 
     __asm__ volatile(
         "movq %[entry], %%rax\n\t"

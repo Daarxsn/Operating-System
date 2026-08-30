@@ -183,4 +183,70 @@ target_link_options(kernel.elf PRIVATE
 
     -T ${CMAKE_SOURCE_DIR}/boot/linker.ld
 )
-   
+
+# =====================================================
+# Ring-3 User Test Application
+# =====================================================
+
+add_executable(user_test.elf
+    tests/user_app.S
+)
+
+set_target_properties(user_test.elf PROPERTIES
+    OUTPUT_NAME "test.elf"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/user"
+)
+
+target_link_options(user_test.elf PRIVATE
+    -nostdlib
+    -static
+    -Wl,-m,elf_x86_64
+    -Wl,-z,max-page-size=0x1000
+    -Wl,--gc-sections
+    -Wl,-T,${CMAKE_SOURCE_DIR}/tests/user.ld
+)
+
+add_custom_command(
+    TARGET user_test.elf POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY}
+        -I elf64-x86-64
+        -O binary
+        $<TARGET_FILE:user_test.elf>
+        ${CMAKE_BINARY_DIR}/user/test.bin
+)
+
+add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/user/user_test_blob.o
+    COMMAND ${CMAKE_COMMAND} -E chdir
+        ${CMAKE_BINARY_DIR}/user
+        ${CMAKE_OBJCOPY}
+        -I binary
+        -O elf64-x86-64
+        -B i386:x86-64
+        test.elf
+        user_test_blob.o
+    DEPENDS user_test.elf
+    VERBATIM
+)
+
+add_custom_target(user_test_blob
+    DEPENDS ${CMAKE_BINARY_DIR}/user/user_test_blob.o
+)
+
+set_source_files_properties(
+    ${CMAKE_BINARY_DIR}/user/user_test_blob.o
+    PROPERTIES
+        GENERATED TRUE
+        EXTERNAL_OBJECT TRUE
+)
+
+target_sources(
+    kernel.elf
+    PRIVATE
+        ${CMAKE_BINARY_DIR}/user/user_test_blob.o
+)
+
+add_dependencies(
+    kernel.elf
+    user_test_blob
+)

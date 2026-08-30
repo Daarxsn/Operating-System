@@ -285,21 +285,16 @@ static uint64_t sys_exit(
      * Kernel code must not accidentally terminate the kernel
      * scheduler through a syscall test.
      */
-    if (process == NULL ||
-        process->kernel_process)
-    {
-        return (uint64_t)-1;
-    }
-
-    process->state =
-        PROCESS_TERMINATED;
+    if (process != NULL)
+        process->exit_code = (int)code;
 
     scheduler_exit_current();
 
     /*
-     * scheduler_exit_current() switches away from the current
-     * thread. This is only a defensive fallback.
-     */
+    * scheduler_exit_current() switches away from the current
+    * thread.
+    * This is only a defensive fallback.
+    */
     return (uint64_t)-1;
 }
 
