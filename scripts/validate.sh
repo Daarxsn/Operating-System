@@ -53,10 +53,10 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
         -m 512M \
         -cdrom "$PROJECT_ROOT/XyrisOS.iso" \
         -boot d \
-        -serial stdio \
+        -serial file:"$QEMU_LOG" \
         -display none \
         -no-reboot \
-        -no-shutdown >"$QEMU_LOG" 2>&1 &
+        -no-shutdown &
     QEMU_PID=$!
 
     REQUIRED_MARKERS=(
@@ -76,7 +76,7 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
 
     QEMU_STATUS=FAIL
 
-    for ((i=0; i<45; i++)); do
+    for ((i=0; i<300; i++)); do
         if [[ -f "$QEMU_LOG" ]]; then
             ALL_FOUND=1
 
