@@ -48,8 +48,22 @@ add_executable(xyris-sdk-core-cpp-header-test
 
 target_link_libraries(xyris-sdk-core-cpp-header-test PRIVATE xyris-sdk-core)
 
+add_executable(xyris-sdk-core-abi-contract-c-test
+    tests/abi_contract_test.c
+)
+
+target_link_libraries(xyris-sdk-core-abi-contract-c-test PRIVATE xyris-sdk-core)
+
+add_executable(xyris-sdk-core-abi-contract-cpp-test
+    tests/abi_contract_test.cpp
+)
+
+target_link_libraries(xyris-sdk-core-abi-contract-cpp-test PRIVATE xyris-sdk-core)
+
 target_link_options(xyris-sdk-core-c-header-test PRIVATE -no-pie)
 target_link_options(xyris-sdk-core-cpp-header-test PRIVATE -no-pie)
+target_link_options(xyris-sdk-core-abi-contract-c-test PRIVATE -no-pie)
+target_link_options(xyris-sdk-core-abi-contract-cpp-test PRIVATE -no-pie)
 
 install(TARGETS xyris-sdk-core
     ARCHIVE DESTINATION lib
@@ -71,5 +85,11 @@ if(BUILD_TESTING)
     )
     add_test(NAME xyris-sdk-core-cpp-header-test
         COMMAND xyris-sdk-core-cpp-header-test
+    )
+    add_test(NAME xyris-sdk-core-abi-contract-c-test
+        COMMAND xyris-sdk-core-abi-contract-c-test
+    )
+    add_test(NAME xyris-sdk-core-abi-contract-cpp-test
+        COMMAND xyris-sdk-core-abi-contract-cpp-test
     )
 endif()
