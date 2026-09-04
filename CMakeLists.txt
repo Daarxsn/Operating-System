@@ -104,6 +104,7 @@ add_executable(kernel.elf
 
     # Boot
     kernel/boot/boot.c
+    kernel/boot/splash.c
 
     # Drivers
     kernel/drivers/driver.c

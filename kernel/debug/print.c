@@ -1,6 +1,7 @@
 #include "print.h"
 
 #include <stddef.h>
+#include <stdbool.h>
 
 #include "drivers/serial.h"
 
@@ -15,112 +16,255 @@
 static int cursor_x = DEBUG_LEFT_MARGIN;
 static int cursor_y = DEBUG_TOP_MARGIN;
 
+/*
+ * Controls whether diagnostic text is rendered to the framebuffer.
+ *
+ * When false:
+ *   - Serial output continues normally.
+ *   - Framebuffer output is completely suppressed.
+ *
+ * This is used during the graphical XyrisOS boot splash.
+ */
+static bool framebuffer_enabled = true;
+
+
+/* -------------------------------------------------
+   Framebuffer Scrolling
+------------------------------------------------- */
+
 static void debug_scroll(void)
 {
     uint32_t width = framebuffer_width();
     uint32_t height = framebuffer_height();
     uint32_t pitch = framebuffer_pitch();
-    volatile uint32_t *fb = framebuffer_address();
 
-    if (fb == NULL || width == 0 || height == 0 || pitch == 0)
+    volatile uint32_t *fb =
+        framebuffer_address();
+
+    if (fb == NULL ||
+        width == 0 ||
+        height == 0 ||
+        pitch == 0)
+    {
         return;
+    }
 
-    uint32_t rows = DEBUG_LINE_HEIGHT;
+    uint32_t rows =
+        DEBUG_LINE_HEIGHT;
 
     if (rows >= height)
     {
         framebuffer_clear(0x00000000);
-        cursor_y = DEBUG_TOP_MARGIN;
+
+        cursor_y =
+            DEBUG_TOP_MARGIN;
+
         return;
     }
 
     uint32_t pixels_per_row =
         pitch / sizeof(uint32_t);
 
-    for (uint32_t y = 0; y < height - rows; y++)
+    /*
+     * Move the framebuffer contents upward.
+     */
+    for (uint32_t y = 0;
+         y < height - rows;
+         y++)
     {
-        for (uint32_t x = 0; x < width; x++)
+        for (uint32_t x = 0;
+             x < width;
+             x++)
         {
-            fb[y * pixels_per_row + x] =
-                fb[(y + rows) * pixels_per_row + x];
+            fb[
+                y * pixels_per_row + x
+            ] =
+                fb[
+                    (y + rows) *
+                    pixels_per_row + x
+                ];
         }
     }
 
-    for (uint32_t y = height - rows; y < height; y++)
+    /*
+     * Clear the newly exposed bottom area.
+     */
+    for (uint32_t y = height - rows;
+         y < height;
+         y++)
     {
-        for (uint32_t x = 0; x < width; x++)
+        for (uint32_t x = 0;
+             x < width;
+             x++)
         {
-            fb[y * pixels_per_row + x] = 0x00000000;
+            fb[
+                y * pixels_per_row + x
+            ] = 0x00000000;
         }
     }
 
+    /*
+     * Keep the diagnostic cursor aligned with
+     * the scrolled framebuffer.
+     */
     if (cursor_y >= (int)rows)
+    {
         cursor_y -= (int)rows;
+    }
     else
-        cursor_y = DEBUG_TOP_MARGIN;
+    {
+        cursor_y =
+            DEBUG_TOP_MARGIN;
+    }
 }
+
+
+/* -------------------------------------------------
+   Line Visibility
+------------------------------------------------- */
 
 static void debug_ensure_line_visible(void)
 {
-    uint32_t height = framebuffer_height();
+    uint32_t height =
+        framebuffer_height();
 
     if (height == 0)
         return;
 
-    while (cursor_y + FONT_HEIGHT > (int)height)
+    while (
+        cursor_y + FONT_HEIGHT >
+        (int)height
+    )
+    {
         debug_scroll();
+    }
 }
+
+
+/* -------------------------------------------------
+   Framebuffer Output Control
+------------------------------------------------- */
+
+void debug_set_framebuffer_enabled(
+    bool enabled
+)
+{
+    framebuffer_enabled = enabled;
+}
+
+
+/* -------------------------------------------------
+   Debug Initialization
+------------------------------------------------- */
 
 void debug_print_init(void)
 {
-    cursor_x = DEBUG_LEFT_MARGIN;
-    cursor_y = DEBUG_TOP_MARGIN;
+    cursor_x =
+        DEBUG_LEFT_MARGIN;
+
+    cursor_y =
+        DEBUG_TOP_MARGIN;
 }
 
-void debug_set_cursor(int x, int y)
+
+/* -------------------------------------------------
+   Cursor Control
+------------------------------------------------- */
+
+void debug_set_cursor(
+    int x,
+    int y
+)
 {
     cursor_x = x;
     cursor_y = y;
 
-    debug_ensure_line_visible();
+    /*
+     * Only perform framebuffer visibility handling
+     * when framebuffer output is enabled.
+     */
+    if (framebuffer_enabled)
+    {
+        debug_ensure_line_visible();
+    }
 }
 
-void debug_print(const char *text)
+
+/* -------------------------------------------------
+   Debug Print
+------------------------------------------------- */
+
+void debug_print(
+    const char *text
+)
 {
     if (!text)
         return;
 
-    /* Mirror the same diagnostic stream to COM1 once the serial
-     * driver is initialized. Before initialization the serial API
-     * safely ignores the write. */
+    /*
+     * Serial output is ALWAYS enabled.
+     *
+     * This means kernel diagnostics continue to appear
+     * on COM1 even when framebuffer output is disabled.
+     */
     xk_serial_write_string(text);
 
-    uint32_t width = framebuffer_width();
+    /*
+     * During the graphical splash, framebuffer output
+     * is disabled completely.
+     */
+    if (!framebuffer_enabled)
+        return;
+
+    uint32_t width =
+        framebuffer_width();
 
     while (*text)
     {
+        /*
+         * Explicit newline.
+         */
         if (*text == '\n')
         {
-            cursor_x = DEBUG_LEFT_MARGIN;
-            cursor_y += DEBUG_LINE_HEIGHT;
+            cursor_x =
+                DEBUG_LEFT_MARGIN;
+
+            cursor_y +=
+                DEBUG_LINE_HEIGHT;
 
             debug_ensure_line_visible();
 
             text++;
+
             continue;
         }
 
-        if (width != 0 &&
-            cursor_x + FONT_WIDTH > (int)width)
+        /*
+         * Automatic line wrapping.
+         */
+        if (
+            width != 0 &&
+            cursor_x + FONT_WIDTH >
+                (int)width
+        )
         {
-            cursor_x = DEBUG_LEFT_MARGIN;
-            cursor_y += DEBUG_LINE_HEIGHT;
+            cursor_x =
+                DEBUG_LEFT_MARGIN;
+
+            cursor_y +=
+                DEBUG_LINE_HEIGHT;
 
             debug_ensure_line_visible();
         }
 
+        /*
+         * Make sure the current line is visible.
+         */
         debug_ensure_line_visible();
 
+        /*
+         * Render the character.
+         */
         font_draw_char(
             cursor_x,
             cursor_y,
@@ -128,17 +272,43 @@ void debug_print(const char *text)
             DEBUG_TEXT_COLOR
         );
 
-        cursor_x += FONT_WIDTH;
+        cursor_x +=
+            FONT_WIDTH;
+
         text++;
     }
 }
 
-void debug_print_line(const char *text)
+
+/* -------------------------------------------------
+   Debug Print Line
+------------------------------------------------- */
+
+void debug_print_line(
+    const char *text
+)
 {
+    if (!text)
+        return;
+
+    /*
+     * debug_print() handles serial output and,
+     * when enabled, framebuffer rendering.
+     */
     debug_print(text);
 
-    cursor_x = DEBUG_LEFT_MARGIN;
-    cursor_y += DEBUG_LINE_HEIGHT;
+    /*
+     * Keep the framebuffer cursor synchronized only
+     * when framebuffer rendering is active.
+     */
+    if (!framebuffer_enabled)
+        return;
+
+    cursor_x =
+        DEBUG_LEFT_MARGIN;
+
+    cursor_y +=
+        DEBUG_LINE_HEIGHT;
 
     debug_ensure_line_visible();
 }

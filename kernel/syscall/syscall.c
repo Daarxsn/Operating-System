@@ -204,33 +204,15 @@ static xyris_syscall_result_t sys_exit(
 
     process_t *process = process_current();
 
-<<<<<<< HEAD
-    /*
-     * Kernel code must not accidentally terminate the kernel
-     * scheduler through a syscall test.
-     */
-    if (process != NULL)
-        process->exit_code = (int)code;
-=======
     if (process == NULL || process->kernel_process)
         return XYRIS_EPERM;
->>>>>>> 9601b4775b8e7e0e97a2cb6d4ae7396e41de1c0c
 
     process->exit_code = (int32_t)code;
     process->exit_requested = true;
     scheduler_exit_current();
 
-<<<<<<< HEAD
-    /*
-    * scheduler_exit_current() switches away from the current
-    * thread.
-    * This is only a defensive fallback.
-    */
-    return (uint64_t)-1;
-=======
     /* Defensive fallback if the scheduler unexpectedly returns. */
     return XYRIS_EBADSTATE;
->>>>>>> 9601b4775b8e7e0e97a2cb6d4ae7396e41de1c0c
 }
 
 void syscall_init(void)

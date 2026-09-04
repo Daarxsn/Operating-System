@@ -48,6 +48,7 @@
 #include "syscall/syscall.h"
 
 #include "boot/boot.h"
+#include "boot/splash.h"
 
 #include "image/image.h"
 #include "image/logo.h"
@@ -157,60 +158,6 @@ static void kernel_idle(void)
    Boot Verification
 ------------------------------------------------- */
 
-static void kernel_diag_mp(void)
-{
-    debug_print_line("");
-    debug_print_line("========== MP / LAPIC DIAGNOSTIC ==========");
-
-    if (mp_request.response == NULL)
-    {
-        debug_print_line("MP Response: NULL");
-        debug_print_line("Limine did not provide an MP response.");
-        debug_print_line("===========================================");
-        return;
-    }
-
-    struct limine_mp_response *mp = mp_request.response;
-
-    debug_print_line("MP Response: OK");
-
-    debug_print("CPU Count: ");
-    debug_print_hex64(mp->cpu_count);
-    debug_print_line("");
-
-    debug_print("BSP LAPIC ID: ");
-    debug_print_hex64(mp->bsp_lapic_id);
-    debug_print_line("");
-
-    debug_print("MP Flags: ");
-    debug_print_hex64(mp->flags);
-    debug_print_line("");
-
-    debug_print("X2APIC: ");
-    if (mp->flags & LIMINE_MP_RESPONSE_X86_64_X2APIC)
-        debug_print_line("YES");
-    else
-        debug_print_line("NO");
-
-    for (uint64_t i = 0; i < mp->cpu_count; i++)
-    {
-        struct limine_mp_info *cpu = mp->cpus[i];
-
-        debug_print("CPU ");
-        debug_print_hex64(i);
-
-        debug_print(" processor_id=");
-        debug_print_hex64(cpu->processor_id);
-
-        debug_print(" lapic_id=");
-        debug_print_hex64(cpu->lapic_id);
-
-        debug_print_line("");
-    }
-
-    debug_print_line("===========================================");
-}
-
 static struct limine_framebuffer *kernel_verify_bootloader(void)
 {
     if (!LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision))
@@ -225,45 +172,6 @@ static struct limine_framebuffer *kernel_verify_bootloader(void)
     return framebuffer_request.response->framebuffers[0];
 }
 
-static void kernel_dump_mp_info(void)
-{
-    if (mp_request.response == NULL)
-    {
-        debug_print_line("MP: No response from Limine");
-        return;
-    }
-
-    struct limine_mp_response *mp = mp_request.response;
-
-    debug_print("MP: CPU count = ");
-    debug_print_hex64(mp->cpu_count);
-    debug_print_line("");
-
-    debug_print("MP: BSP LAPIC ID = ");
-    debug_print_hex64(mp->bsp_lapic_id);
-    debug_print_line("");
-
-    debug_print("MP: Flags = ");
-    debug_print_hex64(mp->flags);
-    debug_print_line("");
-
-    for (uint64_t i = 0; i < mp->cpu_count; i++)
-    {
-        struct limine_mp_info *cpu = mp->cpus[i];
-
-        debug_print("MP: CPU ");
-        debug_print_hex64(i);
-
-        debug_print(" processor=");
-        debug_print_hex64(cpu->processor_id);
-
-        debug_print(" LAPIC=");
-        debug_print_hex64(cpu->lapic_id);
-
-        debug_print_line("");
-    }
-}
-
 
 /* -------------------------------------------------
    Graphics Initialization
@@ -275,18 +183,54 @@ static void kernel_initialize_graphics(
 {
     framebuffer_init(fb);
 
-    framebuffer_clear(0x1E1E2E);
+    /*
+     * From this point onward, normal kernel diagnostics
+     * remain available on serial but do not draw onto
+     * the graphical framebuffer.
+     */
+    debug_set_framebuffer_enabled(false);
+
+    /*
+     * Start with a completely black framebuffer.
+     */
+    framebuffer_clear(0x00000000);
+
+    /*
+     * XyrisOS boot logo.
+     *
+     * The source image is 512x512 and is rendered at its
+     * native size in the center of the framebuffer.
+     */
+    const uint32_t logo_width = 512;
+    const uint32_t logo_height = 512;
+
+    uint32_t logo_x =
+        (framebuffer_width() - logo_width) / 2;
+
+    uint32_t logo_y =
+        (framebuffer_height() - logo_height) / 2;
+
+    draw_image_scaled(
+        logo_x,
+        logo_y,
+        &xyris_logo,
+        logo_width,
+        logo_height
+    );
 
     ui_init();
 
-    boot_init();
-    boot_header();
+    /*
+     * These diagnostics are deferred and will be displayed
+     * after the splash screen disappears.
+     */
+    boot_ui_ok(
+        "Framebuffer Initialized"
+    );
 
-    kernel_diag_mp();
-    kernel_dump_mp_info();
-
-    boot_step_ok("Framebuffer Initialized");
-    boot_step_ok("Graphics Engine Initialized");
+    boot_ui_ok(
+        "Graphics Engine Initialized"
+    );
 }
 
 
@@ -298,19 +242,19 @@ static void kernel_initialize_cpu(void)
 {
     gdt_init();
 
-    boot_step_ok(
+    boot_ui_ok(
         "Global Descriptor Table Loaded"
     );
 
     idt_init();
 
-    boot_step_ok(
+    boot_ui_ok(
         "Interrupt Descriptor Table Loaded"
     );
 
     isr_init();
 
-    boot_step_ok(
+    boot_ui_ok(
         "Interrupt Service Routines Loaded"
     );
 }
@@ -582,7 +526,7 @@ static void kernel_initialize_memory(void)
 {
     memory_map_init();
 
-    boot_step_ok(
+    boot_ui_ok(
         "Memory Map Initialized"
     );
 
@@ -609,7 +553,7 @@ static void kernel_initialize_memory(void)
         );
     }
 
-    boot_step_ok(
+    boot_ui_ok(
         "Physical Memory Manager Initialized"
     );
 
@@ -700,7 +644,7 @@ static void kernel_initialize_memory(void)
         );
     }
 
-    boot_step_ok(
+    boot_ui_ok(
         "Kernel Heap Initialized"
     );
 
@@ -711,7 +655,7 @@ static void kernel_initialize_memory(void)
 
     vmm_init();
 
-    boot_step_ok(
+    boot_ui_ok(
         "Virtual Memory Manager Initialized"
     );
 }
@@ -726,13 +670,13 @@ static void kernel_initialize_execution(void)
 {
     process_initialize();
 
-    boot_step_ok(
+    boot_ui_ok(
         "Process Manager Initialized"
     );
 
     thread_initialize();
 
-    boot_step_ok(
+    boot_ui_ok(
         "Thread Manager Initialized"
     );
 
@@ -1353,7 +1297,7 @@ static void kernel_initialize_kernel(void)
 
     xk_driver_manager_init();
 
-    boot_step_ok(
+    boot_ui_ok(
         "Driver Manager Initialized"
     );
 
@@ -1404,7 +1348,7 @@ static void kernel_initialize_kernel(void)
      * Kernel file-system and system-call foundations.
      */
     vfs_init();
-    boot_step_ok(
+    boot_ui_ok(
         "VFS Initialized"
     );
 
@@ -1428,7 +1372,7 @@ static void kernel_initialize_kernel(void)
     }
 
     syscall_init();
-    boot_step_ok(
+    boot_ui_ok(
         "System Call Table Initialized"
     );
 
@@ -1771,10 +1715,6 @@ debug_print("RING3 TEST: LAUNCH CALL RETURNED\n");
 
     run_kernel_tests();
 
-
-    boot_success(
-        "Kernel Ready"
-    );
 }
 
 
@@ -1792,9 +1732,9 @@ void kernel_main(void)
        Graphics
     ------------------------------------------------- */
 
-    kernel_initialize_graphics(
-        framebuffer
-    );
+   kernel_initialize_graphics(
+    framebuffer
+);
 
 
     /* -------------------------------------------------
@@ -1825,13 +1765,14 @@ void kernel_main(void)
     kernel_initialize_kernel();
 
 
-    /* -------------------------------------------------
-       Interrupts
-    ------------------------------------------------- */
+  /* -------------------------------------------------
+   Interrupts
+------------------------------------------------- */
+kernel_initialize_interrupts();
 
-    kernel_initialize_interrupts();
+boot_splash_show();
 
-
+boot_status_render();
     /*
      * Start the cooperative scheduler.
      *

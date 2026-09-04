@@ -17,4 +17,17 @@ void boot_step_warn(const char *text);
 
 void boot_step_fail(const char *text);
 
+void boot_ui_ok(const char *text);
+
+void boot_ui_warn(const char *text);
+
+void boot_ui_fail(const char *text);
+/*
+ * Render the collected boot diagnostics as a
+ * fixed-position graphical boot-status page.
+ *
+ * This renderer never scrolls the framebuffer.
+ */
+void boot_status_render(void);
+
 #endif
