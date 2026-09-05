@@ -85,6 +85,8 @@ Run the complete simulator test suite with:
 
 ```bash
 ./scripts/simulator-test.sh
+```
+
 ## Validation
 
 Run the repository validation pipeline from the project root:
@@ -93,9 +95,24 @@ Run the repository validation pipeline from the project root:
 ./scripts/validate.sh
 ```
 
-The pipeline performs a clean kernel build with warnings treated as errors, an
-unresolved-symbol audit, simulator build/CTest execution, and optional ISO/QEMU
-runtime validation when `xorriso` and `qemu-system-x86_64` are installed.
+The pipeline performs a clean kernel build with warnings treated as errors, an unresolved-symbol audit, simulator build/CTest execution, and optional ISO/QEMU runtime validation when `xorriso` and `qemu-system-x86_64` are installed.
 
-A missing host runtime dependency is reported as **BLOCKED**, not silently
-represented as a passing boot test.
+A missing host runtime dependency is reported as **BLOCKED**, not silently represented as a passing boot test.
+
+## Xyris SDK
+
+The SDK provides a stable application-facing layer over the Xyris System ABI. C/C++ applications use the freestanding userspace toolchain from `toolchain/xyris-user.cmake`. Rust applications use the stable built-in `x86_64-unknown-none` target with the Xyris Rust SDK under `xyris-sdk/rust`.
+
+For Rust applications:
+
+```bash
+cargo build --target x86_64-unknown-none --release
+```
+
+A freestanding Rust application should use `#![no_std]` and `#![no_main]`, provide the Xyris `_start` entry point with `xyris_entry!`, and use `xyris_panic_handler!` for the required panic handler. See `docs/sdk/Xyris_SDK_7.5_Rust.md` and `tests/rust-app` for the reference contract.
+
+## Documentation
+
+The M10 developer platform documentation is indexed in [`docs/README.md`](docs/README.md).
+
+Start with [`Xyris SDK Getting Started`](docs/sdk/Xyris_SDK_Getting_Started.md), then use the [`SDK API Reference`](docs/sdk/Xyris_SDK_API_Reference.md) and [`XyrisOS Developer Guide`](docs/development/Xyris_Developer_Guide.md) for day-to-day development.
