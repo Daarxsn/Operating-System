@@ -68,6 +68,7 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
         add_test(NAME xyris-dev-cli-test COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/dev-tools/test_xyris_dev.py)
+        add_test(NAME xyris-documentation-test COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/documentation/validate_docs.py)
     endif()
 endif()
 
