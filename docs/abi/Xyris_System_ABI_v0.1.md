@@ -79,7 +79,7 @@ struct xyris_abi_header {
 
 The public headers define stable structures and enumerations for process state, thread state, memory protection/region information, file and directory entries, IPC messages/endpoints, events/subscriptions, timers, devices, network endpoints/sockets, security identities/policies, and capability information.
 
-These definitions form the ABI contract. They do not by themselves claim that every corresponding kernel service is already operational.
+These definitions form the ABI contract. In v0.1 the corresponding SDK service layer is kernel-backed for process/thread control, virtual memory mapping, filesystem primitives, queued IPC, events, timers, device enumeration, loopback networking, and security identity/capability checks. Hardware-facing networking beyond loopback remains outside v0.1.
 
 ## 8. Error model
 
@@ -108,6 +108,21 @@ The ABI workstream is accepted when:
 5. The aggregate `xyris_abi.h` exposes the complete v0.1 public ABI surface.
 6. No public ABI header exposes a private kernel structure.
 
-## 13. Relationship to syscall ABI
+## 13. Assigned syscall surface
+
+The v0.1 syscall namespace is append-only. The original filesystem/process calls remain stable at 0–4; SDK service calls occupy 5–34:
+
+- 5–9: process/thread
+- 10–12: memory
+- 13–16: IPC
+- 17–20: events
+- 21–24: timers
+- 25–26: devices
+- 27–32: networking
+- 33–34: security
+
+Each service validates user pointers and ownership before touching userspace data.
+
+## 14. Relationship to syscall ABI
 
 Workstream **7.2 — Syscall Interface** defines the user/kernel calling convention, syscall numbering, argument structures, result/error semantics, transition vector, and compatibility rules used to transport the public ABI across the kernel boundary.

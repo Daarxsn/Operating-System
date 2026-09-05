@@ -2,6 +2,7 @@
 #include "thread.h"
 #include "scheduler.h"
 #include "user.h"
+#include "../syscall/syscall.h"
 
 #include "../loader/elf.h"
 #include "../memory/vmm.h"
@@ -162,6 +163,8 @@ void process_exit_current(int32_t exit_code)
 void process_destroy(process_t *process)
 {
     if (process == NULL) return;
+
+    syscall_process_cleanup(process);
 
     if (current_process == process)
     {

@@ -19,6 +19,14 @@ The following numbers are assigned and must not be reused for a different operat
 | 2 | `XYRIS_SYS_OPEN` | Open a file by path |
 | 3 | `XYRIS_SYS_CLOSE` | Close an open file descriptor |
 | 4 | `XYRIS_SYS_EXIT` | Terminate the current userspace process |
+| 5–9 | Process/thread | Current process identity, thread identity/info, yield, sleep |
+| 10–12 | Memory | Map, unmap, and protect user virtual memory |
+| 13–16 | IPC | Create, send, receive, and close queued endpoints |
+| 17–20 | Events | Create, signal, wait, and close event objects |
+| 21–24 | Timers | Create, cancel, wait, and close timers |
+| 25–26 | Devices | Enumerate and inspect kernel driver/PCI devices |
+| 27–32 | Networking | Socket, bind, connect, send, receive, close loopback endpoints |
+| 33–34 | Security | Query identity and check capability rights |
 
 Values at or above `XYRIS_SYS_MAX` are currently unassigned and return `XYRIS_ENOSYS`.
 
@@ -116,6 +124,38 @@ RDI = signed process exit code represented in the 64-bit argument slot
 
 Kernel processes are not permitted to terminate through this syscall. A userspace process records its exit code and leaves the current scheduler context.
 
+### Process and thread services
+
+`GETPID` returns the current process ID. `THREAD_SELF` returns the current thread ID. `THREAD_INFO` copies the public thread-info structure to userspace. `THREAD_YIELD` voluntarily schedules another runnable thread. `THREAD_SLEEP` blocks the current thread for the requested duration.
+
+### Memory services
+
+`MEMORY_MAP` allocates page-aligned user pages in the caller's address space. `MEMORY_UNMAP` releases the mapping and owned physical pages. `MEMORY_PROTECT` changes page permissions. Only user processes may request these mappings.
+
+### IPC services
+
+`IPC_CREATE` creates a process-owned bounded endpoint. `IPC_SEND` copies a versioned message descriptor and payload into the endpoint queue. `IPC_RECV` copies the next queued payload to the receiver. `IPC_CLOSE` releases the endpoint. Capabilities are checked by the kernel.
+
+### Event services
+
+Events are process-owned queued kernel objects. Applications can create an event, signal it with four 64-bit payload words, wait for the next event, and close it.
+
+### Timer services
+
+Timers support one-shot and periodic modes with nanosecond ABI values. The current kernel time source has millisecond resolution, so deadlines/intervals are rounded up to the next millisecond.
+
+### Device services
+
+The device API exposes a stable `xyris_device_info_t` view of registered kernel drivers and enumerated PCI functions. Private driver and PCI structures never cross the ABI boundary.
+
+### Networking services
+
+Networking v0.1 is a kernel-managed loopback transport. It supports socket creation, binding, connecting, sending, receiving, and closing. External NIC/IP networking is deliberately outside this revision because the repository does not yet contain a production network stack.
+
+### Security services
+
+`SECURITY_IDENTITY` exposes the caller's stable public identity structure. `SECURITY_CHECK` validates a capability/object pair against requested public security rights using the kernel capability manager.
+
 ## 6. User/kernel boundary
 
 Userspace data is untrusted.
@@ -155,7 +195,9 @@ Future filesystem and process APIs may expose more precise statuses once their k
 
 The syscall table is explicitly initialized during kernel boot immediately after ISR initialization and before interrupts are enabled.
 
-`syscall_init()` clears the table and registers the five supported handlers. `syscall_dispatch()` rejects out-of-range numbers and NULL handler slots with `XYRIS_ENOSYS`.
+`syscall_init()` clears the table and registers the complete v0.1 service set. `syscall_dispatch()` rejects out-of-range numbers and NULL handler slots with `XYRIS_ENOSYS`.
+
+The assigned service groups are: process/thread (5–9), memory (10–12), IPC (13–16), events (17–20), timers (21–24), devices (25–26), networking (27–32), and security (33–34).
 
 This boot-time initialization is required for the IDT/syscall path to function correctly.
 
@@ -169,9 +211,7 @@ A future incompatible calling convention requires a new ABI major version or an 
 
 ## 10. Scope boundary
 
-v0.1 intentionally does not expose process creation, threads, memory mapping, IPC, events, timers, devices or networking because the current syscall layer does not yet provide stable implementations for those services.
-
-Those domains remain reserved for subsequent M10/kernel integration work.
+v0.1 exposes the kernel-backed SDK service surface listed above. Process creation, application packaging, C/C++ toolchain integration, Rust support, developer commands, compatibility policy, and end-to-end application lifecycle testing remain later M10 workstreams (7.4–7.10). External networking remains outside the v0.1 networking scope; loopback networking is the supported transport.
 
 ## 11. Validation
 

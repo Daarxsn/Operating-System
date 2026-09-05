@@ -34,6 +34,14 @@ _Static_assert(sizeof(xyris_sys_write_args_t) == 24, "WRITE ABI arguments change
 _Static_assert(sizeof(xyris_sys_open_args_t) == 8, "OPEN ABI arguments changed");
 _Static_assert(sizeof(xyris_sys_close_args_t) == 4, "CLOSE ABI arguments changed");
 _Static_assert(sizeof(xyris_sys_exit_args_t) == 4, "EXIT ABI arguments changed");
+_Static_assert(XYRIS_SYS_GETPID == 5u, "GETPID syscall number changed");
+_Static_assert(XYRIS_SYS_MEMORY_MAP == 10u, "MEMORY_MAP syscall number changed");
+_Static_assert(XYRIS_SYS_IPC_CREATE == 13u, "IPC_CREATE syscall number changed");
+_Static_assert(XYRIS_SYS_EVENT_CREATE == 17u, "EVENT_CREATE syscall number changed");
+_Static_assert(XYRIS_SYS_TIMER_CREATE == 21u, "TIMER_CREATE syscall number changed");
+_Static_assert(XYRIS_SYS_DEVICE_COUNT == 25u, "DEVICE_COUNT syscall number changed");
+_Static_assert(XYRIS_SYS_NET_SOCKET == 27u, "NET_SOCKET syscall number changed");
+_Static_assert(XYRIS_SYS_SECURITY_IDENTITY == 33u, "SECURITY_IDENTITY syscall number changed");
 
 int main(void)
 {
@@ -41,6 +49,6 @@ int main(void)
             XYRIS_ABI_MINOR == 1u &&
             XYRIS_SYSCALL_ABI_VERSION == 1u &&
             XYRIS_SYSCALL_VECTOR == 0x80u &&
-            XYRIS_SYS_MAX == 5u &&
+            XYRIS_SYS_MAX == 35u &&
             XYRIS_SYS_RESERVED_FIRST == XYRIS_SYS_MAX) ? 0 : 1;
 }

@@ -4,6 +4,7 @@
 #include "fs_tests.h"
 #include "scheduler_test.h"
 #include "foundation_tests.h"
+#include "sdk_services_tests.h"
 
 void run_kernel_tests(void)
 {
@@ -31,4 +32,7 @@ void run_kernel_tests(void)
      * Foundation and driver manager tests.
      */
     run_foundation_tests();
+
+    /* Phase 6: kernel-backed public SDK service boundary. */
+    run_sdk_services_tests();
 }
