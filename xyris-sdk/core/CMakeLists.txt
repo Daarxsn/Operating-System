@@ -13,8 +13,9 @@ add_library(xyris-sdk-core STATIC
 
 target_include_directories(xyris-sdk-core
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../abi/include
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../abi/include>
+        $<INSTALL_INTERFACE:include>
 )
 
 target_compile_options(xyris-sdk-core PRIVATE
@@ -65,9 +66,6 @@ target_link_options(xyris-sdk-core-cpp-header-test PRIVATE -no-pie)
 target_link_options(xyris-sdk-core-abi-contract-c-test PRIVATE -no-pie)
 target_link_options(xyris-sdk-core-abi-contract-cpp-test PRIVATE -no-pie)
 
-install(TARGETS xyris-sdk-core
-    ARCHIVE DESTINATION lib
-)
 
 install(DIRECTORY include/
     DESTINATION include

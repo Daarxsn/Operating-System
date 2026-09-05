@@ -1,0 +1,6 @@
+@PACKAGE_INIT@
+include("${CMAKE_CURRENT_LIST_DIR}/XyrisSDKTargets.cmake")
+if(NOT TARGET Xyris::SDK)
+  add_library(Xyris::SDK ALIAS Xyris::xyris-sdk)
+endif()
+set(XyrisSDK_FOUND TRUE)

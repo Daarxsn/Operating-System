@@ -13,9 +13,12 @@ add_library(xyris-sdk-ipc INTERFACE)
 
 target_include_directories(xyris-sdk-ipc
     INTERFACE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../core/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../abi/include
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../core/include>
+        $<INSTALL_INTERFACE:include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../abi/include>
+        $<INSTALL_INTERFACE:include>
 )
 
 target_link_libraries(xyris-sdk-ipc INTERFACE xyris-sdk-core)

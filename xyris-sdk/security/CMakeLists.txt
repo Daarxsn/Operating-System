@@ -8,9 +8,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(xyris-sdk-security INTERFACE)
 target_include_directories(xyris-sdk-security INTERFACE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../core/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../abi/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../core/include>
+        $<INSTALL_INTERFACE:include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../abi/include>
+        $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(xyris-sdk-security INTERFACE xyris-sdk-core)
 

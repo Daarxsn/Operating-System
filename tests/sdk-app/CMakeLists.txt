@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(xyris_hello C)
+set(CMAKE_C_STANDARD 23)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/xyris/XyrisApplication.cmake")
+xyris_add_application(xyris-hello SOURCES main.c LINKER_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/user.ld" OUTPUT_NAME "xyris-hello")

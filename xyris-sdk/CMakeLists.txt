@@ -24,8 +24,19 @@ add_subdirectory(security)
 # One public target for application developers. Individual module targets remain
 # available for projects that want a narrower dependency surface.
 add_library(xyris-sdk INTERFACE)
+add_library(Xyris::SDK ALIAS xyris-sdk)
 target_include_directories(xyris-sdk INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/core/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/process/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/thread/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/memory/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/filesystem/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/ipc/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/events/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/timers/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/devices/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/networking/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/security/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../abi/include>
     $<INSTALL_INTERFACE:include>
 )
@@ -56,4 +67,55 @@ if(BUILD_TESTING)
     add_test(NAME xyris-sdk-cpp-header-test COMMAND xyris-sdk-cpp-header-test)
 endif()
 
+include(CMakePackageConfigHelpers)
+
+install(TARGETS
+    xyris-sdk
+    xyris-sdk-core
+    xyris-sdk-process
+    xyris-sdk-thread
+    xyris-sdk-memory
+    xyris-sdk-filesystem
+    xyris-sdk-ipc
+    xyris-sdk-events
+    xyris-sdk-timers
+    xyris-sdk-devices
+    xyris-sdk-networking
+    xyris-sdk-security
+    EXPORT XyrisSDKTargets
+)
+
 install(FILES core/include/xyris/sdk.h DESTINATION include/xyris)
+install(FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/xyris/XyrisApplication.cmake
+    ${CMAKE_CURRENT_SOURCE_DIR}/../toolchain/xyris-user.cmake
+    DESTINATION share/xyris/cmake
+)
+install(PROGRAMS
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tools/xyris-build/xyris-build.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tools/xyris-build/xyris-package.py
+    DESTINATION bin
+)
+
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/XyrisSDKConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/XyrisSDKConfig.cmake
+    INSTALL_DESTINATION lib/cmake/XyrisSDK
+)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/XyrisSDKConfigVersion.cmake
+    VERSION 0.1.0
+    COMPATIBILITY ExactVersion
+)
+
+install(EXPORT XyrisSDKTargets
+    FILE XyrisSDKTargets.cmake
+    NAMESPACE Xyris::
+    DESTINATION lib/cmake/XyrisSDK
+)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/XyrisSDKConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/XyrisSDKConfigVersion.cmake
+    DESTINATION lib/cmake/XyrisSDK
+)
