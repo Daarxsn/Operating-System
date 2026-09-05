@@ -65,6 +65,10 @@ target_link_options(xyris-sdk-cpp-header-test PRIVATE -no-pie)
 if(BUILD_TESTING)
     add_test(NAME xyris-sdk-c-header-test COMMAND xyris-sdk-c-header-test)
     add_test(NAME xyris-sdk-cpp-header-test COMMAND xyris-sdk-cpp-header-test)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME xyris-dev-cli-test COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/dev-tools/test_xyris_dev.py)
+    endif()
 endif()
 
 include(CMakePackageConfigHelpers)
@@ -94,7 +98,17 @@ install(FILES
 install(PROGRAMS
     ${CMAKE_CURRENT_SOURCE_DIR}/../tools/xyris-build/xyris-build.py
     ${CMAKE_CURRENT_SOURCE_DIR}/../tools/xyris-build/xyris-package.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tools/xyris-build/xyris-dev.py
     DESTINATION bin
+)
+install(DIRECTORY
+    ${CMAKE_CURRENT_SOURCE_DIR}/rust/
+    DESTINATION share/xyris/rust/xyris-sdk
+    PATTERN "target" EXCLUDE
+)
+install(FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../toolchain/xyris-rust.toml
+    DESTINATION share/xyris/rust
 )
 
 configure_package_config_file(
