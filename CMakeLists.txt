@@ -2,84 +2,50 @@ cmake_minimum_required(VERSION 3.20)
 
 project(XyrisOS C ASM)
 
-enable_language(ASM)
-
-set(CMAKE_C_STANDARD 23)
-
 include(CTest)
 
+# =====================================================
+# Kernel
+# =====================================================
 
 add_executable(kernel.elf
 
     # Core
-    kernel/core/kernel.c
-
-    # Tests
-    kernel/tests/tests.c
-    kernel/tests/memory_tests.c
-    kernel/tests/fs_tests.c
-    kernel/tests/scheduler_test.c
-    kernel/tests/foundation_tests.c
-    kernel/tests/sdk_services_tests.c
-
-    # =====================================================
-    # Kernel String / Standard Library Support
-    # =====================================================
-
-    
-    kernel/lib/string.c
-
-
-    # Foundation
-    kernel/foundation2/ukom.c
-    kernel/foundation2/capability.c
-    kernel/foundation2/resource.c
-    kernel/foundation2/event.c
-    kernel/foundation2/time.c
-    kernel/foundation2/config.c
-
-
-    # Graphics
-    kernel/graphics/framebuffer.c
-    kernel/graphics/graphics.c
-    kernel/graphics/font.c
-
-
-    # Terminal
-    kernel/terminal/terminal.c
-
-
-    # UI
-    kernel/ui/ui.c
-
-
-    # Images
-    kernel/image/image.c
-    kernel/image/logo.c
-
+    kernel/kernel.c
+    kernel/main.c
+    kernel/init.c
 
     # Memory
-    kernel/memory/memory_map.c
-    kernel/memory/pmm.c
+    kernel/memory/paging.c
     kernel/memory/heap.c
+    kernel/memory/frame.c
     kernel/memory/vmm.c
-    kernel/memory/bitmap.c
-    kernel/memory/hhdm.c
+    kernel/memory/pmm.c
 
-    # Logger
-    kernel/logger/logger.c
+    # Graphics / UI
+    kernel/graphics/framebuffer.c
+    kernel/graphics/font.c
+    kernel/graphics/terminal.c
+    kernel/ui/ui.c
+    kernel/ui/window.c
 
-    # File system
-    kernel/fs/vfs.c
-    kernel/fs/ramfs.c
-    kernel/fs/file.c
+    # Objects / UKOM
+    kernel/object/object.c
+    kernel/object/ukom.c
+    kernel/object/process.c
+    kernel/object/thread.c
+    kernel/object/driver.c
+    kernel/object/device.c
+    kernel/object/timer.c
+    kernel/object/event.c
+    kernel/object/resource.c
 
-    # System calls
+    # Syscall / ABI / SDK
     kernel/syscall/syscall.c
+    kernel/syscall/syscall_table.c
     kernel/syscall/sdk_services.c
-    kernel/syscall/syscall_isr.c
 
-    # User-space / ELF framework
+    # Loader / Process
     kernel/loader/elf.c
     kernel/process/user.c
 
@@ -131,12 +97,10 @@ add_executable(kernel.elf
 )
 
 
-
 target_include_directories(kernel.elf PRIVATE
     kernel
     kernel/include
 )
-
 
 
 target_compile_options(kernel.elf PRIVATE
@@ -238,21 +202,27 @@ add_custom_target(user_test_blob
     DEPENDS ${CMAKE_BINARY_DIR}/user/user_test_blob.o
 )
 
-set_source_files_properties(
-    ${CMAKE_BINARY_DIR}/user/user_test_blob.o
-    PROPERTIES
-        GENERATED TRUE
-        EXTERNAL_OBJECT TRUE
+# =====================================================
+# Embed User Test ELF into Kernel
+# =====================================================
+
+set(USER_TEST_BLOB ${CMAKE_BINARY_DIR}/user/user_test_blob.o)
+
+target_sources(kernel.elf PRIVATE
+    ${USER_TEST_BLOB}
 )
 
-target_sources(
-    kernel.elf
-    PRIVATE
-        ${CMAKE_BINARY_DIR}/user/user_test_blob.o
-)
+# =====================================================
+# Tests
+# =====================================================
 
-add_dependencies(
-    kernel.elf
-    user_test_blob
-)
+add_subdirectory(simulator)
 add_subdirectory(xyris-sdk)
+
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+if(BUILD_TESTING)
+    add_test(
+        NAME xyris-xapp-packaging-test
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/xapp/test_xapp.py
+    )
+endif()
