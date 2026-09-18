@@ -43,8 +43,9 @@ fi
 
 echo "[5/5] QEMU runtime"
 if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS.iso" ]]; then
-        QEMU_LOG="$PROJECT_ROOT/build/qemu-runtime.log"
+    QEMU_LOG="$PROJECT_ROOT/build/qemu-runtime.log"
     QEMU_RC=0
+    QEMU_TIMEOUT="${XYRIS_QEMU_TIMEOUT:-60}"
 
     rm -f "$QEMU_LOG"
 
@@ -60,7 +61,8 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
     QEMU_PID=$!
 
     REQUIRED_MARKERS=(
-        "Kernel Ready"
+        "Userspace Init: Process Created"
+        "Userspace Init: Thread Scheduled"
         "Syscall Test: Open"
         "Syscall Test: Read"
         "Syscall Test: Close"
@@ -76,16 +78,33 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
 
     QEMU_STATUS=FAIL
 
-    for ((i=0; i<300; i++)); do
+    cleanup_qemu() {
+        kill "$QEMU_PID" 2>/dev/null || true
+        wait "$QEMU_PID" 2>/dev/null || true
+    }
+    trap cleanup_qemu EXIT
+
+    for ((i=0; i<QEMU_TIMEOUT; i++)); do
         if [[ -f "$QEMU_LOG" ]]; then
+            if grep -qF "[FAIL]" "$QEMU_LOG"; then
+                echo "ERROR: kernel reported one or more test failures."
+                cat "$QEMU_LOG"
+                exit 1
+            fi
+
+            if grep -qF "PMM FREE REJECT" "$QEMU_LOG"; then
+                echo "ERROR: PMM rejected one or more physical-page frees."
+                cat "$QEMU_LOG"
+                exit 1
+            fi
+
             ALL_FOUND=1
 
             for marker in "${REQUIRED_MARKERS[@]}"; do
-                if [[ ! -s "$QEMU_LOG" ]] || ! grep -qF "$marker" "$QEMU_LOG"; then
+                if ! grep -qF "$marker" "$QEMU_LOG"; then
                     ALL_FOUND=0
                     break
-            fi
-
+                fi
             done
 
             if [[ "$ALL_FOUND" -eq 1 ]]; then
@@ -94,41 +113,24 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
             fi
         fi
 
+        if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+            wait "$QEMU_PID" 2>/dev/null || QEMU_RC=$?
+            echo "ERROR: QEMU exited before all runtime markers were detected."
+            echo "QEMU exit status: $QEMU_RC"
+            [[ -f "$QEMU_LOG" ]] && cat "$QEMU_LOG"
+            exit 1
+        fi
+
         sleep 1
     done
 
-    kill "$QEMU_PID" 2>/dev/null || true
-    wait "$QEMU_PID" 2>/dev/null || true
+    cleanup_qemu
+    trap - EXIT
 
-
-    if grep -q "\[FAIL\]" "$QEMU_LOG"; then
-        echo "ERROR: kernel reported one or more test failures."
-        cat "$QEMU_LOG"
-        exit 1
-    fi
-
-    if grep -q "PMM FREE REJECT" "$QEMU_LOG"; then
-        echo "ERROR: PMM rejected one or more physical-page frees."
-        cat "$QEMU_LOG"
-        exit 1
-    fi
-
-    if grep -q "Kernel Ready" "$QEMU_LOG" && \
-       grep -q "Syscall Test: Open" "$QEMU_LOG" && \
-       grep -q "Syscall Test: Read" "$QEMU_LOG" && \
-       grep -q "Syscall Test: Close" "$QEMU_LOG" && \
-       grep -q "User Test: Address Space Cleanup" "$QEMU_LOG" && \
-       grep -q "Foundation Test: Millisecond Accounting" "$QEMU_LOG" && \
-       grep -q "Driver Test: Keyboard Modifier Decode" "$QEMU_LOG" && \
-       grep -q "Driver Test: Keyboard Pause Sequence" "$QEMU_LOG" && \
-       grep -q "Driver Test: Mouse Packet Event" "$QEMU_LOG" && \
-       grep -q "THREAD A FINISHED" "$QEMU_LOG" && \
-       grep -q "THREAD B FINISHED" "$QEMU_LOG" && \
-       grep -q "Preemption Test: PASS" "$QEMU_LOG"; then
-        echo "PASS: QEMU boot, kernel tests, user cleanup, and scheduler completion markers detected."
-        QEMU_STATUS=PASS
+    if [[ "$QEMU_STATUS" == "PASS" ]]; then
+        echo "PASS: QEMU boot, userspace init, kernel tests, user cleanup, and scheduler completion markers detected."
     else
-        echo "ERROR: required QEMU runtime markers were not detected."
+        echo "ERROR: required QEMU runtime markers were not detected within ${QEMU_TIMEOUT}s."
         echo "QEMU exit status: $QEMU_RC"
         cat "$QEMU_LOG"
         exit 1
