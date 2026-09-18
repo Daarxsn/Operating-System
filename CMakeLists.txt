@@ -4,96 +4,86 @@ project(XyrisOS C ASM)
 
 include(CTest)
 
+option(XYRIS_BUILD_SIMULATOR "Build host-side simulator targets from the top-level project" OFF)
+
 # =====================================================
 # Kernel
 # =====================================================
 
-add_executable(kernel.elf
-
-    # Core
-    kernel/kernel.c
-    kernel/main.c
-    kernel/init.c
-
-    # Memory
-    kernel/memory/paging.c
-    kernel/memory/heap.c
-    kernel/memory/frame.c
-    kernel/memory/vmm.c
-    kernel/memory/pmm.c
-
-    # Graphics / UI
-    kernel/graphics/framebuffer.c
-    kernel/graphics/font.c
-    kernel/graphics/terminal.c
-    kernel/ui/ui.c
-    kernel/ui/window.c
-
-    # Objects / UKOM
-    kernel/object/object.c
-    kernel/object/ukom.c
-    kernel/object/process.c
-    kernel/object/thread.c
-    kernel/object/driver.c
-    kernel/object/device.c
-    kernel/object/timer.c
-    kernel/object/event.c
-    kernel/object/resource.c
-
-    # Syscall / ABI / SDK
-    kernel/syscall/syscall.c
-    kernel/syscall/syscall_table.c
-    kernel/syscall/sdk_services.c
-
-    # Loader / Process
-    kernel/loader/elf.c
-    kernel/process/user.c
-
-
-    # CPU
+set(KERNEL_SOURCES
+    kernel/core/kernel.c
+    kernel/cpu/cpu.c
+    kernel/cpu/exceptions.c
     kernel/cpu/gdt.c
     kernel/cpu/idt.c
-    kernel/cpu/isr.c
-    kernel/cpu/exceptions.c
-    kernel/cpu/page_fault.c
     kernel/cpu/interrupt.S
     kernel/cpu/io.c
-    kernel/cpu/pic.c
-    kernel/cpu/irq.c
-    kernel/cpu/pit.c
-    kernel/cpu/cpu.c
-    kernel/cpu/lapic.c
     kernel/cpu/ioapic.c
-
-
-    # Debug
+    kernel/cpu/irq.c
+    kernel/cpu/isr.c
+    kernel/cpu/lapic.c
+    kernel/cpu/page_fault.c
+    kernel/cpu/pic.c
+    kernel/cpu/pit.c
+    kernel/debug/hex.c
     kernel/debug/panic.c
     kernel/debug/print.c
-    kernel/debug/hex.c
-
-
-    # Boot
-    kernel/boot/boot.c
-    kernel/boot/splash.c
-
-    # Drivers
     kernel/drivers/driver.c
     kernel/drivers/keyboard.c
     kernel/drivers/mouse.c
-    kernel/drivers/serial.c
     kernel/drivers/pci.c
-
-    ## Process 
-
+    kernel/drivers/serial.c
+    kernel/foundation2/capability.c
+    kernel/foundation2/config.c
+    kernel/foundation2/event.c
+    kernel/foundation2/resource.c
+    kernel/foundation2/time.c
+    kernel/foundation2/ukom.c
+    kernel/fs/file.c
+    kernel/fs/ramfs.c
+    kernel/fs/vfs.c
+    kernel/graphics/font.c
+    kernel/graphics/framebuffer.c
+    kernel/graphics/graphics.c
+    kernel/graphics/primitives.c
+    kernel/image/image.c
+    kernel/image/logo.c
+    kernel/init/init.c
+    kernel/lib/string.c
+    kernel/loader/elf.c
+    kernel/logger/logger.c
+    kernel/memory/bitmap.c
+    kernel/memory/heap.c
+    kernel/memory/hhdm.c
+    kernel/memory/memory_map.c
+    kernel/memory/pmm.c
+    kernel/memory/vmm.c
+    kernel/process/context.c
+    kernel/process/idle.c
     kernel/process/process.c
-    kernel/process/thread.c
     kernel/process/queue.c
     kernel/process/scheduler.c
-    kernel/process/context.c
     kernel/process/switch.S
-    kernel/process/idle.c
+    kernel/process/thread.c
+    kernel/process/user.c
     kernel/process/user_thread.S
+    kernel/syscall/sdk_services.c
+    kernel/syscall/syscall.c
+    kernel/syscall/syscall_isr.c
+    kernel/terminal/terminal.c
+    kernel/tests/foundation_tests.c
+    kernel/tests/fs_tests.c
+    kernel/tests/memory_tests.c
+    kernel/tests/scheduler_test.c
+    kernel/tests/sdk_services_tests.c
+    kernel/tests/tests.c
+    kernel/ui/ui.c
+    kernel/boot/boot.c
+    kernel/boot/splash.c
+)
 
+add_executable(kernel.elf
+    ${KERNEL_SOURCES}
 )
 
 
@@ -216,8 +206,16 @@ target_sources(kernel.elf PRIVATE
 # Tests
 # =====================================================
 
-add_subdirectory(simulator)
+if(XYRIS_BUILD_SIMULATOR)
+    add_subdirectory(simulator)
+endif()
 add_subdirectory(xyris-sdk)
+add_subdirectory(userspace)
+
+# Member 9 userspace bootstrap image.
+set(USER_INIT_BLOB ${CMAKE_BINARY_DIR}/user/userspace_init_blob.o)
+add_dependencies(kernel.elf userspace_init_blob)
+target_sources(kernel.elf PRIVATE ${USER_INIT_BLOB})
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 if(BUILD_TESTING)

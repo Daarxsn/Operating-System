@@ -54,17 +54,7 @@ target_link_libraries(xyris-sdk INTERFACE
     xyris-sdk-security
 )
 
-add_executable(xyris-sdk-c-header-test tests/sdk_header_test.c)
-target_link_libraries(xyris-sdk-c-header-test PRIVATE xyris-sdk)
-target_link_options(xyris-sdk-c-header-test PRIVATE -no-pie)
-
-add_executable(xyris-sdk-cpp-header-test tests/sdk_header_test.cpp)
-target_link_libraries(xyris-sdk-cpp-header-test PRIVATE xyris-sdk)
-target_link_options(xyris-sdk-cpp-header-test PRIVATE -no-pie)
-
 if(BUILD_TESTING)
-    add_test(NAME xyris-sdk-c-header-test COMMAND xyris-sdk-c-header-test)
-    add_test(NAME xyris-sdk-cpp-header-test COMMAND xyris-sdk-cpp-header-test)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
         add_test(NAME xyris-dev-cli-test COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/dev-tools/test_xyris_dev.py)
@@ -72,12 +62,29 @@ if(BUILD_TESTING)
         add_test(NAME xyris-abi-compatibility-test COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/abi/test_abi_compatibility.py)
         add_test(NAME xyris-e2e-contract-test COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/e2e/test_e2e_contract.py)
     endif()
-    add_executable(xyris-abi-layout-test tests/abi/abi_layout_test.c)
-    target_include_directories(xyris-abi-layout-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../abi/include)
-    add_test(NAME xyris-abi-layout-test COMMAND xyris-abi-layout-test)
-    add_executable(xyris-abi-layout-cpp-test tests/abi/abi_layout_test.cpp)
-    target_include_directories(xyris-abi-layout-cpp-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../abi/include)
-    add_test(NAME xyris-abi-layout-cpp-test COMMAND xyris-abi-layout-cpp-test)
+
+    # These executables are native host tests. Do not build them while the
+    # top-level project is configured with the freestanding Xyris toolchain.
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_executable(xyris-sdk-c-header-test tests/sdk_header_test.c)
+        target_link_libraries(xyris-sdk-c-header-test PRIVATE xyris-sdk)
+        target_link_options(xyris-sdk-c-header-test PRIVATE -no-pie)
+
+        add_executable(xyris-sdk-cpp-header-test tests/sdk_header_test.cpp)
+        target_link_libraries(xyris-sdk-cpp-header-test PRIVATE xyris-sdk)
+        target_link_options(xyris-sdk-cpp-header-test PRIVATE -no-pie)
+
+        add_executable(xyris-abi-layout-test ${CMAKE_CURRENT_SOURCE_DIR}/../tests/abi/abi_layout_test.c)
+        target_include_directories(xyris-abi-layout-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../abi/include)
+
+        add_executable(xyris-abi-layout-cpp-test ${CMAKE_CURRENT_SOURCE_DIR}/../tests/abi/abi_layout_test.cpp)
+        target_include_directories(xyris-abi-layout-cpp-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../abi/include)
+
+        add_test(NAME xyris-sdk-c-header-test COMMAND xyris-sdk-c-header-test)
+        add_test(NAME xyris-sdk-cpp-header-test COMMAND xyris-sdk-cpp-header-test)
+        add_test(NAME xyris-abi-layout-test COMMAND xyris-abi-layout-test)
+        add_test(NAME xyris-abi-layout-cpp-test COMMAND xyris-abi-layout-cpp-test)
+    endif()
 endif()
 
 include(CMakePackageConfigHelpers)

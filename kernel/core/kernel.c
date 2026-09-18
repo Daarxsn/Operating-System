@@ -65,6 +65,9 @@ extern volatile uint64_t context_switch_if0_count;
 extern const unsigned char _binary_test_elf_start[];
 extern const unsigned char _binary_test_elf_end[];
 extern const unsigned char _binary_test_elf_size[];
+extern const unsigned char _binary_init_elf_start[];
+extern const unsigned char _binary_init_elf_end[];
+extern const unsigned char _binary_init_elf_size[];
 
 /* -------------------------------------------------
    Test Thread Declarations
@@ -1107,6 +1110,7 @@ else
 }
 
 static process_t *user_test_process = NULL;
+static process_t *userspace_init_process = NULL;
 
 static void launch_user_test_process(void)
 {
@@ -1167,6 +1171,52 @@ static void launch_user_test_process(void)
 
     boot_step_ok(
         "Ring3 Test: User Thread Scheduled"
+    );
+}
+
+static void launch_userspace_init_process(void)
+{
+    const unsigned char *elf_start = _binary_init_elf_start;
+    size_t elf_size =
+        (size_t)(_binary_init_elf_end - _binary_init_elf_start);
+
+    if (elf_start == NULL || elf_size == 0)
+    {
+        boot_step_fail(
+            "Userspace Init: Embedded ELF Missing"
+        );
+        return;
+    }
+
+    userspace_init_process =
+        process_create_user(
+            "xyris-init",
+            elf_start,
+            elf_size
+        );
+
+    if (userspace_init_process == NULL)
+    {
+        boot_step_fail(
+            "Userspace Init: Process Creation Failed"
+        );
+        return;
+    }
+
+    if (userspace_init_process->main_thread == NULL)
+    {
+        boot_step_fail(
+            "Userspace Init: Main Thread Missing"
+        );
+        return;
+    }
+
+    boot_step_ok(
+        "Userspace Init: Process Created"
+    );
+
+    boot_step_ok(
+        "Userspace Init: Thread Scheduled"
     );
 }
 
@@ -1605,6 +1655,9 @@ else
         "Ring3 Test Waiter Created"
     );
 }
+
+launch_userspace_init_process();
+
 debug_print("RING3 TEST: LAUNCH CALL RETURNED\n");
 
     /* -------------------------------------------------
