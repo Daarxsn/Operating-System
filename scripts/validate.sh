@@ -1,22 +1,39 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build"
 SIM_BUILD_DIR="$PROJECT_ROOT/simulator/build"
+QEMU_LOG="$BUILD_DIR/qemu-runtime.log"
+
+# Maximum time to wait for QEMU runtime markers.
+# Override with: XYRIS_QEMU_TIMEOUT=120 ./scripts/validate.sh
+QEMU_TIMEOUT="${XYRIS_QEMU_TIMEOUT:-60}"
+
+if ! [[ "$QEMU_TIMEOUT" =~ ^[0-9]+$ ]] || (( QEMU_TIMEOUT <= 0 )); then
+    echo "ERROR: XYRIS_QEMU_TIMEOUT must be a positive integer."
+    exit 1
+fi
 
 cd "$PROJECT_ROOT"
 
 echo "=========================================="
 echo "       XyrisOS Validation Pipeline"
 echo "=========================================="
+
+# -----------------------------------------------------------------------------
+# [1/5] Clean kernel build
+# -----------------------------------------------------------------------------
 echo "[1/5] Clean kernel build"
 rm -rf "$BUILD_DIR"
 cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$PROJECT_ROOT/toolchain/x86_64-toolchain.cmake"
 cmake --build "$BUILD_DIR"
 
+# -----------------------------------------------------------------------------
+# [2/5] Unresolved-symbol audit
+# -----------------------------------------------------------------------------
 echo "[2/5] Unresolved-symbol audit"
 if nm -u "$BUILD_DIR/kernel.elf" | grep -q .; then
     echo "ERROR: unresolved symbols detected"
@@ -26,12 +43,18 @@ fi
 
 echo "PASS: no unresolved kernel symbols"
 
+# -----------------------------------------------------------------------------
+# [3/5] Simulator build and tests
+# -----------------------------------------------------------------------------
 echo "[3/5] Simulator build and tests"
 rm -rf "$SIM_BUILD_DIR"
 cmake -S "$PROJECT_ROOT/simulator" -B "$SIM_BUILD_DIR" -G Ninja
 cmake --build "$SIM_BUILD_DIR"
 ctest --test-dir "$SIM_BUILD_DIR" --output-on-failure
 
+# -----------------------------------------------------------------------------
+# [4/5] ISO prerequisites / generation
+# -----------------------------------------------------------------------------
 echo "[4/5] ISO prerequisites"
 if command -v xorriso >/dev/null 2>&1; then
     "$PROJECT_ROOT/scripts/iso.sh"
@@ -41,12 +64,22 @@ else
     ISO_STATUS=BLOCKED
 fi
 
+# -----------------------------------------------------------------------------
+# [5/5] QEMU runtime
+# -----------------------------------------------------------------------------
 echo "[5/5] QEMU runtime"
-if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS.iso" ]]; then
-    QEMU_LOG="$PROJECT_ROOT/build/qemu-runtime.log"
-    QEMU_RC=0
-    QEMU_TIMEOUT="${XYRIS_QEMU_TIMEOUT:-60}"
 
+QEMU_STATUS=BLOCKED
+QEMU_PID=""
+
+cleanup_qemu() {
+    if [[ -n "$QEMU_PID" ]] && kill -0 "$QEMU_PID" 2>/dev/null; then
+        kill "$QEMU_PID" 2>/dev/null || true
+        wait "$QEMU_PID" 2>/dev/null || true
+    fi
+}
+
+if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS.iso" ]]; then
     rm -f "$QEMU_LOG"
 
     qemu-system-x86_64 \
@@ -54,12 +87,23 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
         -m 512M \
         -cdrom "$PROJECT_ROOT/XyrisOS.iso" \
         -boot d \
-        -serial file:"$QEMU_LOG" \
+        -serial "file:$QEMU_LOG" \
         -display none \
         -no-reboot \
         -no-shutdown &
     QEMU_PID=$!
 
+    handle_signal() {
+        cleanup_qemu
+        exit 130
+    }
+
+    trap cleanup_qemu EXIT
+    trap handle_signal INT TERM
+
+    # These markers must be present in the serial log for runtime acceptance.
+    # "Kernel Ready" is intentionally not used because the current boot code
+    # renders that message to the framebuffer rather than serial output.
     REQUIRED_MARKERS=(
         "Userspace Init: Process Created"
         "Userspace Init: Thread Scheduled"
@@ -76,15 +120,9 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
         "Preemption Test: PASS"
     )
 
-    QEMU_STATUS=FAIL
+    ALL_FOUND=0
 
-    cleanup_qemu() {
-        kill "$QEMU_PID" 2>/dev/null || true
-        wait "$QEMU_PID" 2>/dev/null || true
-    }
-    trap cleanup_qemu EXIT
-
-    for ((i=0; i<QEMU_TIMEOUT; i++)); do
+    for ((elapsed=0; elapsed<QEMU_TIMEOUT; elapsed++)); do
         if [[ -f "$QEMU_LOG" ]]; then
             if grep -qF "[FAIL]" "$QEMU_LOG"; then
                 echo "ERROR: kernel reported one or more test failures."
@@ -99,7 +137,6 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
             fi
 
             ALL_FOUND=1
-
             for marker in "${REQUIRED_MARKERS[@]}"; do
                 if ! grep -qF "$marker" "$QEMU_LOG"; then
                     ALL_FOUND=0
@@ -113,8 +150,10 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
             fi
         fi
 
+        # Fail fast if QEMU has exited before producing the required markers.
         if ! kill -0 "$QEMU_PID" 2>/dev/null; then
-            wait "$QEMU_PID" 2>/dev/null || QEMU_RC=$?
+            QEMU_RC=0
+            wait "$QEMU_PID" || QEMU_RC=$?
             echo "ERROR: QEMU exited before all runtime markers were detected."
             echo "QEMU exit status: $QEMU_RC"
             [[ -f "$QEMU_LOG" ]] && cat "$QEMU_LOG"
@@ -124,20 +163,20 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
         sleep 1
     done
 
-    cleanup_qemu
-    trap - EXIT
-
-    if [[ "$QEMU_STATUS" == "PASS" ]]; then
-        echo "PASS: QEMU boot, userspace init, kernel tests, user cleanup, and scheduler completion markers detected."
-    else
+    if [[ "$QEMU_STATUS" != "PASS" ]]; then
         echo "ERROR: required QEMU runtime markers were not detected within ${QEMU_TIMEOUT}s."
-        echo "QEMU exit status: $QEMU_RC"
-        cat "$QEMU_LOG"
+        echo "QEMU log: $QEMU_LOG"
+        [[ -f "$QEMU_LOG" ]] && cat "$QEMU_LOG"
         exit 1
     fi
+
+    cleanup_qemu
+    QEMU_PID=""
+    trap - EXIT INT TERM
+
+    echo "PASS: QEMU boot, userspace init, kernel tests, user cleanup, and scheduler completion markers detected."
 else
     echo "BLOCKED: qemu-system-x86_64 or a generated ISO is unavailable."
-    QEMU_STATUS=BLOCKED
 fi
 
 echo ""
@@ -150,7 +189,7 @@ echo "Simulator/CTest: PASS"
 echo "ISO generation: $ISO_STATUS"
 echo "QEMU runtime: $QEMU_STATUS"
 
-if [[ "$ISO_STATUS" == BLOCKED || "$QEMU_STATUS" == BLOCKED ]]; then
+if [[ "$ISO_STATUS" == "BLOCKED" || "$QEMU_STATUS" == "BLOCKED" ]]; then
     echo ""
     echo "Source/build validation is complete."
     echo "Runtime acceptance remains environment-dependent until the missing host tools are installed."
