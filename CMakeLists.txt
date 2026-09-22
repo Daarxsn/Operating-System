@@ -52,6 +52,11 @@ set(KERNEL_SOURCES
     kernel/lib/string.c
     kernel/loader/elf.c
     kernel/logger/logger.c
+    kernel/hardware/hardware_inventory.c
+    kernel/hardware/pci_inventory.c
+    kernel/drivers/block.c
+    kernel/drivers/ahci.c
+    kernel/drivers/xhci.c
     kernel/memory/bitmap.c
     kernel/memory/heap.c
     kernel/memory/hhdm.c

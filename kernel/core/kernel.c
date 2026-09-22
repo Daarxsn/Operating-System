@@ -23,6 +23,12 @@
 #include "cpu/lapic.h"
 #include "cpu/ioapic.h"
 
+#include "../cpu/cpu.h"
+#include "../include/drivers/block.h"
+#include "../include/drivers/ahci.h"
+#include "../hardware/hardware_inventory.h"
+#include "../hardware/pci_inventory.h"
+
 #include "memory/memory_map.h"
 #include "memory/hhdm.h"
 #include "memory/pmm.h"
@@ -41,6 +47,7 @@
 #include "drivers/mouse.h"
 #include "drivers/serial.h"
 #include "drivers/pci.h"
+#include "drivers/xhci.h"
 
 #include "fs/vfs.h"
 #include "fs/ramfs.h"
@@ -310,6 +317,35 @@ static void kernel_initialize_interrupts(void)
         (uint64_t)destination_lapic
     );
     debug_print_line("");
+
+    /* -------------------------------------------------
+       CPU Hardware Information
+    ------------------------------------------------- */
+
+    if (mp_request.response != NULL)
+    {
+        uint64_t cpu_count =
+            mp_request.response->cpu_count;
+
+        if (cpu_count > UINT32_MAX)
+            cpu_count = UINT32_MAX;
+
+        cpu_set_processor_count(
+            (uint32_t)cpu_count
+        );
+
+        boot_step_ok(
+            "CPU Hardware Information Detected"
+        );
+    }
+    else
+    {
+        cpu_set_processor_count(1);
+
+        boot_step_warn(
+            "CPU Hardware Information Unavailable"
+        );
+    }
 
     /* -------------------------------------------------
        IOAPIC
@@ -1388,11 +1424,148 @@ static void kernel_initialize_kernel(void)
     );
 
 
+    xk_driver_register(
+        &xk_xhci_driver
+    );
+
+    boot_step_ok(
+        "xHCI USB Controller Driver Registered"
+    );
+
+
     /*
      * Initialize all registered drivers only after the complete
      * driver set has been registered.
      */
     xk_driver_initialize_all();
+
+    /*
+     * Verify xHCI USB controller initialization.
+     */
+    if (xk_xhci_is_present())
+    {
+        XKXHCIController xhci =
+            xk_xhci_controller_info();
+
+        boot_step_ok(
+            "xHCI USB Controller Initialized"
+        );
+
+        debug_print("xHCI Vendor ID: ");
+        debug_print_hex64(xhci.vendor_id);
+        debug_print("xHCI Device ID: ");
+        debug_print_hex64(xhci.device_id);
+        debug_print("xHCI MMIO Base: ");
+        debug_print_hex64(xhci.mmio_base);
+    }
+    else
+    {
+        boot_step_warn(
+            "xHCI USB Controller Not Present"
+        );
+    }
+
+    /*
+     * Block device subsystem.
+     */
+    if (xk_block_initialize())
+    {
+        boot_step_ok(
+            "Block Device Subsystem Initialized"
+        );
+    }
+    else
+    {
+        boot_step_warn(
+            "Block Device Subsystem Initialization Failed"
+        );
+    }
+
+    /*
+     * AHCI SATA controller detection.
+     */
+    if (xk_ahci_initialize())
+    {
+        XKAHCIController ahci =
+            xk_ahci_controller_info();
+
+        boot_step_ok(
+            "AHCI SATA Controller Detected"
+        );
+
+        debug_print("AHCI Vendor ID: ");
+        debug_print_hex64(
+            (uint64_t)ahci.vendor_id
+        );
+        debug_print_line("");
+
+        debug_print("AHCI Device ID: ");
+        debug_print_hex64(
+            (uint64_t)ahci.device_id
+        );
+        debug_print_line("");
+
+        debug_print("AHCI ABAR: ");
+        debug_print_hex64(
+            (uint64_t)ahci.abar
+        );
+        debug_print_line("");
+
+        debug_print("AHCI Implemented Ports: ");
+                for (uint32_t port_index = 0;
+             port_index < xk_ahci_port_count();
+             port_index++)
+        {
+            XKAHCIPort port;
+
+            if (xk_ahci_port_get(port_index, &port) != 0)
+                continue;
+
+            debug_print("AHCI Port ");
+            debug_print_hex64(
+                (uint64_t)port.port_number
+            );
+
+            if (port.device_present)
+            {
+                debug_print_line(
+                    ": Device Present"
+                );
+            }
+            else
+            {
+                debug_print_line(
+                    ": No Device"
+                );
+            }
+
+            debug_print("AHCI Port Device Type: ");
+            debug_print_hex64(
+                (uint64_t)port.device_type
+            );
+            debug_print_line("");
+        }
+
+        debug_print_hex64(
+            (uint64_t)ahci.implemented_ports
+        );
+        debug_print_line("");
+    }
+    else
+    {
+        boot_step_warn(
+            "AHCI SATA Controller Not Detected"
+        );
+    }
+
+    /*
+     * Hardware inventory.
+     */
+    pci_inventory_init();
+    pci_inventory_dump();
+
+    hardware_inventory_init();
+    hardware_inventory_dump();
 
     /*
      * Kernel file-system and system-call foundations.
