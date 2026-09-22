@@ -85,6 +85,7 @@ if command -v qemu-system-x86_64 >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/XyrisOS
     qemu-system-x86_64 \
         -machine q35 \
         -m 512M \
+        -device qemu-xhci \
         -cdrom "$PROJECT_ROOT/XyrisOS.iso" \
         -boot d \
         -serial "file:$QEMU_LOG" \

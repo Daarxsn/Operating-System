@@ -63,12 +63,15 @@ static xyris_status_t require_user_read(xyris_user_ptr_t address, xyris_size_t s
 {
     if (size == 0)
         return XYRIS_OK;
+
+    process_t *process = current_process();
+
+    if (process == NULL || process->kernel_process)
+        return XYRIS_OK;
+
     if (address == 0 || address >= SDK_USER_LIMIT)
         return XYRIS_EFAULT;
 
-    process_t *process = current_process();
-    if (process == NULL || process->kernel_process)
-        return XYRIS_OK;
     if (process->address_space == NULL)
         return XYRIS_EFAULT;
 
