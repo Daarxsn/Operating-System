@@ -123,8 +123,9 @@ install(DIRECTORY
     PATTERN "target" EXCLUDE
 )
 install(FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/../toolchain/xyris-rust.toml
+    ${CMAKE_CURRENT_SOURCE_DIR}/../toolchain/xyris-rust.cargo.toml
     DESTINATION share/xyris/rust
+    RENAME xyris-rust.toml
 )
 
 configure_package_config_file(
