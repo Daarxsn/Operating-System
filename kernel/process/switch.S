@@ -69,6 +69,12 @@ context_switch:
     movq %rax, 64(%rdi)
     movq %rax, context_switch_last_saved_rflags(%rip)
 
+    /* Record contexts saved while IF=0 for timer-preemption diagnostics. */
+    testq $0x200, %rax
+    jnz 2f
+    incq context_switch_if0_count(%rip)
+2:
+
     /* Load next context. */
     movq 0(%rsi), %rsp
     movq 8(%rsi), %rbp

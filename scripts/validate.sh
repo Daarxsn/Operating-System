@@ -53,9 +53,12 @@ cmake --build "$SIM_BUILD_DIR"
 ctest --test-dir "$SIM_BUILD_DIR" --output-on-failure
 
 # -----------------------------------------------------------------------------
-# [4/5] ISO prerequisites / generation
+# [4/5] ABI compatibility / ISO prerequisites
 # -----------------------------------------------------------------------------
-echo "[4/5] ISO prerequisites"
+echo "[4/5] ABI compatibility / ISO prerequisites"
+echo "Running 7.9 ABI compatibility validation"
+python3 "$PROJECT_ROOT/tests/abi/test_abi_compatibility.py"
+
 if command -v xorriso >/dev/null 2>&1; then
     "$PROJECT_ROOT/scripts/iso.sh"
     ISO_STATUS=PASS

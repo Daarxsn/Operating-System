@@ -3,6 +3,7 @@
 from pathlib import Path
 import re
 import sys
+import os
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "scripts/e2e-test.sh"
@@ -12,6 +13,19 @@ PACKAGER = ROOT / "tools/xyris-build/xyris-package.py"
 DOC = ROOT / "docs/testing/Xyris_End_to_End_Testing_7.10.md"
 
 errors = []
+
+for script in sorted((ROOT / "scripts").glob("*.sh")):
+    data = script.read_bytes()
+
+    if b"\r\n" in data or b"\r" in data:
+        errors.append(
+            f"script uses CRLF line endings: {script.relative_to(ROOT)}"
+        )
+
+    if not os.access(script, os.X_OK):
+        errors.append(
+            f"script is not executable: {script.relative_to(ROOT)}"
+        )
 
 def require_file(path: Path, label: str) -> str:
     if not path.is_file():
@@ -50,7 +64,7 @@ for marker in ("Kernel Ready", "Syscall Test: Open", "Syscall Test: Read", "Sysc
     if marker not in validator:
         errors.append(f"repository validation pipeline missing runtime marker: {marker}")
 
-if "xyris-abi-compatibility-test" not in validator and "test_abi_compatibility.py" not in abi:
+if "test_abi_compatibility.py" not in validator:
     errors.append("7.9 ABI validation is not connected to the end-to-end contract")
 if "xyris-abi-v0.1" not in packager:
     errors.append("XAPP packager does not declare the v0.1 ABI")
