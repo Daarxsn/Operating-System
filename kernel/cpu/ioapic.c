@@ -1,6 +1,7 @@
 #include "ioapic.h"
 
 #include "../memory/hhdm.h"
+#include "../debug/print.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -37,10 +38,14 @@ static void ioapic_select(uint8_t reg)
     if (ioapic_base == (volatile uint8_t *)0)
         return;
 
+    debug_print_line("IOAPIC TRACE: before index write");
+
     volatile uint32_t *index =
         (volatile uint32_t *)(ioapic_base + IOAPIC_MMIO_INDEX);
 
     *index = (uint32_t)reg;
+
+    debug_print_line("IOAPIC TRACE: after index write");
 
     __asm__ volatile (
         "mfence"
@@ -48,6 +53,8 @@ static void ioapic_select(uint8_t reg)
         :
         : "memory"
     );
+
+    debug_print_line("IOAPIC TRACE: after index mfence");
 }
 
 uint32_t ioapic_read(uint8_t reg)
@@ -55,12 +62,21 @@ uint32_t ioapic_read(uint8_t reg)
     if (ioapic_base == (volatile uint8_t *)0)
         return 0;
 
+    debug_print_line("IOAPIC TRACE: before ioapic_select");
+
     ioapic_select(reg);
+
+    debug_print_line("IOAPIC TRACE: after ioapic_select");
+    debug_print_line("IOAPIC TRACE: before data read");
 
     volatile uint32_t *data =
         (volatile uint32_t *)(ioapic_base + IOAPIC_MMIO_DATA);
 
-    return *data;
+    uint32_t value = *data;
+
+    debug_print_line("IOAPIC TRACE: after data read");
+
+    return value;
 }
 
 void ioapic_write(uint8_t reg, uint32_t value)
@@ -89,46 +105,43 @@ void ioapic_write(uint8_t reg, uint32_t value)
 
 bool ioapic_initialize(void)
 {
-    /*
-     * The HHDM is already initialized before interrupt initialization
-     * in kernel_main(), but explicitly ensure the IOAPIC page is mapped
-     * with MMIO/cache-disabled attributes.
-     */
-    if (!hhdm_map_mmio(ioapic_phys, 0x1000))
-    {
+    debug_print_line("IOAPIC TRACE: entered initialize");
+    debug_print_line("IOAPIC TRACE: before hhdm_map_mmio");
+
+    if (!hhdm_map_mmio(ioapic_phys, 0x1000)) {
         ioapic_initialized = false;
         ioapic_base = (volatile uint8_t *)0;
         return false;
     }
 
-    ioapic_base =
-        (volatile uint8_t *)phys_to_virt(ioapic_phys);
+    debug_print_line("IOAPIC TRACE: after hhdm_map_mmio");
+    debug_print_line("IOAPIC TRACE: before phys_to_virt");
 
-    if (ioapic_base == (volatile uint8_t *)0)
-    {
+    ioapic_base = (volatile uint8_t *)phys_to_virt(ioapic_phys);
+
+    debug_print_line("IOAPIC TRACE: after phys_to_virt");
+
+    if (ioapic_base == (volatile uint8_t *)0) {
         ioapic_initialized = false;
         return false;
     }
 
-    /*
-     * IOAPICVER bits 23:16 contain the highest redirection entry.
-     * QEMU's Q35 IOAPIC normally reports 23, giving inputs 0..23.
-     */
+    debug_print_line("IOAPIC TRACE: before version read");
+
     uint32_t version = ioapic_read(IOAPIC_REG_VERSION);
+
+    debug_print_line("IOAPIC TRACE: after version read");
+
     uint8_t max_entry = (uint8_t)((version >> 16) & 0xFFU);
 
-    if (max_entry == 0 || max_entry > 239U)
-    {
+    if (max_entry == 0 || max_entry > 239U) {
         ioapic_initialized = false;
         return false;
     }
 
     ioapic_max_redir = max_entry;
-
-    /* Mark initialized before using the public mask helper. */
     ioapic_initialized = true;
 
-    /* Start with every IOAPIC input masked. */
     for (uint16_t input = 0;
          input <= ioapic_max_redir;
          ++input)

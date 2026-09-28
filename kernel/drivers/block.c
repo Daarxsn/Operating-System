@@ -1,6 +1,8 @@
 #include "drivers/block.h"
 
 #include <stddef.h>
+#include "debug/print.h"
+#include "debug/hex.h"
 
 #define XK_BLOCK_MAX_DEVICES 32
 
@@ -86,9 +88,15 @@ int xk_block_register(XKBlockDevice *device)
     }
 
     device->initialized = true;
-    block_devices[block_device_count++] = device;
+block_devices[block_device_count++] = device;
 
-    return 0;
+debug_print("[BLOCK] Registered device, count=");
+debug_print_hex64(
+    (uint64_t)block_device_count
+);
+debug_print_line("");
+
+return 0;
 }
 
 

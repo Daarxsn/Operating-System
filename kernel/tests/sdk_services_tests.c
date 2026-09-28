@@ -139,10 +139,16 @@ void run_sdk_services_tests(void)
     else
         boot_step_fail("SDK Security Identity Failed");
 
+    boot_step_ok("DEBUG: Before SDK Device Service");
     xyris_u32 device_count = (xyris_u32)xyris_sdk_service_device_count();
+    boot_step_ok("DEBUG: After SDK Device Count");
     xyris_device_info_t device_info;
+    boot_step_ok("DEBUG: Before SDK Device Info");
     if (device_count == 0 || xyris_sdk_service_device_info(0, (xyris_user_ptr_t)(uintptr_t)&device_info) == XYRIS_OK)
+    {
+        boot_step_ok("DEBUG: After SDK Device Info");
         boot_step_ok("SDK Device Service Passed");
+    }
     else
         boot_step_fail("SDK Device Service Failed");
 

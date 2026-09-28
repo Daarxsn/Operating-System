@@ -18,6 +18,11 @@ typedef struct
     uint32_t display_pitch;
 
     uint32_t pci_device_count;
+
+    uint32_t usb_controller_count;
+    uint32_t storage_device_count;
+    uint32_t network_device_count;
+    uint32_t audio_device_count;
 } hardware_inventory_t;
 
 /*

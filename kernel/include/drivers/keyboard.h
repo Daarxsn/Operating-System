@@ -37,6 +37,7 @@ void xk_keyboard_irq_handler(registers_t *regs);
 /* Hardware-independent input processing used by the IRQ path and tests. */
 bool xk_keyboard_process_scancode(uint8_t scancode);
 bool xk_keyboard_read_event(XKKeyboardEvent *event);
+bool xk_keyboard_push_event(const XKKeyboardEvent *event);
 bool xk_keyboard_event_available(void);
 uint8_t xk_keyboard_modifiers(void);
 

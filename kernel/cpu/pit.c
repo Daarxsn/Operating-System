@@ -15,13 +15,23 @@ static uint32_t pit_frequency = 100;
 
 void pit_initialize(uint32_t frequency)
 {
+    debug_print_line("PIT DEBUG: entered pit_initialize");
+    debug_print_line("PIT DEBUG: before frequency check");
+
     if (frequency == 0)
     {
         frequency = 100;
     }
 
+    debug_print_line("PIT DEBUG: frequency validated");
+
     pit_frequency = frequency;
+
+    debug_print_line("PIT DEBUG: setting time frequency");
+
     (void)xk_time_set_frequency(frequency);
+
+    debug_print_line("PIT DEBUG: time frequency set");
 
     uint16_t divisor =
         (uint16_t)(
@@ -29,17 +39,25 @@ void pit_initialize(uint32_t frequency)
             frequency
         );
 
+    debug_print_line("PIT DEBUG: divisor calculated");
+
     outb(PIT_COMMAND, 0x36);
+
+    debug_print_line("PIT DEBUG: command written");
 
     outb(
         PIT_CHANNEL0,
         divisor & 0xFF
     );
 
+    debug_print_line("PIT DEBUG: low divisor written");
+
     outb(
         PIT_CHANNEL0,
         divisor >> 8
     );
+
+    debug_print_line("PIT DEBUG: high divisor written");
 
     debug_print_line("PIT: hardware initialized");
 }

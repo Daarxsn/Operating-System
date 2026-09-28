@@ -46,6 +46,7 @@ bool xk_xhci_initialize(void);
 void xk_xhci_shutdown(void);
 
 bool xk_xhci_is_present(void);
+uint32_t xk_xhci_poll(void);
 
 XKXHCIController xk_xhci_controller_info(void);
 

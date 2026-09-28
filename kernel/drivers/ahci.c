@@ -8,6 +8,8 @@
 #include "memory/hhdm.h"
 #include "memory/pmm.h"
 #include "include/compiler.h"
+#include "debug/print.h"
+#include "debug/hex.h"
 
 
 /*
@@ -28,6 +30,7 @@
 #define AHCI_PORT_CLBU              0x04
 #define AHCI_PORT_FB                0x08
 #define AHCI_PORT_FBU               0x0C
+#define AHCI_PORT_IS                0x10
 #define AHCI_PORT_CMD               0x18
 #define AHCI_PORT_TFD               0x20
 #define AHCI_PORT_SIG               0x24
@@ -81,7 +84,7 @@
  * These are software-loop limits because the early kernel
  * does not yet have a suitable millisecond timer abstraction.
  */
-#define AHCI_COMMAND_TIMEOUT        10000000U
+#define AHCI_COMMAND_TIMEOUT        1000000U
 #define AHCI_ENGINE_TIMEOUT         10000000U
 
 
@@ -101,6 +104,9 @@
 
 /*
  * Register Host-to-Device FIS.
+ */
+/*
+ * AHCI register FIS.
  */
 typedef struct PACKED
 {
@@ -129,7 +135,6 @@ typedef struct PACKED
 
 } AHCIRegisterFIS;
 
-
 /*
  * Physical Region Descriptor Table entry.
  */
@@ -144,25 +149,20 @@ typedef struct PACKED
 
 } AHCIPrdtEntry;
 
-
 /*
  * AHCI command header.
+ *
+ * AHCI command headers are exactly 32 bytes.
  */
 typedef struct PACKED
 {
     uint32_t command_flags;
-
-    uint32_t prdt_length;
-
     uint32_t physical_region_descriptor_byte_count;
-
     uint32_t command_table_base;
     uint32_t command_table_base_upper;
-
     uint32_t reserved[4];
 
 } AHCICommandHeader;
-
 
 /*
  * AHCI command table.
@@ -373,8 +373,10 @@ static bool ahci_allocate_command_resources(
     /*
      * Command list.
      */
+    debug_print_line("[AHCI-DBG] Allocating command list");
     resources->command_list_physical =
         pmm_alloc_page();
+    debug_print_line("[AHCI-DBG] Command list allocated");
 
     if (resources->command_list_physical == 0)
         goto fail;
@@ -384,11 +386,15 @@ static bool ahci_allocate_command_resources(
             resources->command_list_physical
         );
 
+    debug_print_line("[AHCI-DBG] Command list mapped");
+
     /*
      * Command table.
      */
+    debug_print_line("[AHCI-DBG] Allocating command table");
     resources->command_table_physical =
         pmm_alloc_page();
+    debug_print_line("[AHCI-DBG] Command table allocated");
 
     if (resources->command_table_physical == 0)
         goto fail;
@@ -398,11 +404,15 @@ static bool ahci_allocate_command_resources(
             resources->command_table_physical
         );
 
+    debug_print_line("[AHCI-DBG] Command table mapped");
+
     /*
      * FIS receive area.
      */
+    debug_print_line("[AHCI-DBG] Allocating FIS area");
     resources->fis_receive_physical =
         pmm_alloc_page();
+    debug_print_line("[AHCI-DBG] FIS area allocated");
 
     if (resources->fis_receive_physical == 0)
         goto fail;
@@ -412,11 +422,15 @@ static bool ahci_allocate_command_resources(
             resources->fis_receive_physical
         );
 
+    debug_print_line("[AHCI-DBG] FIS area mapped");
+
     /*
      * IDENTIFY / sector DMA buffer.
      */
+    debug_print_line("[AHCI-DBG] Allocating IDENTIFY buffer");
     resources->identify_physical =
         pmm_alloc_page();
+    debug_print_line("[AHCI-DBG] IDENTIFY buffer allocated");
 
     if (resources->identify_physical == 0)
         goto fail;
@@ -425,6 +439,8 @@ static bool ahci_allocate_command_resources(
         (uint16_t *)phys_to_virt(
             resources->identify_physical
         );
+
+    debug_print_line("[AHCI-DBG] IDENTIFY buffer mapped");
 
     /*
      * Clear all DMA memory before giving it to AHCI.
@@ -452,6 +468,8 @@ static bool ahci_allocate_command_resources(
         0,
         AHCI_IDENTIFY_SIZE
     );
+
+    debug_print_line("[AHCI-DBG] DMA buffers cleared");
 
     resources->port_number =
         port_number;
@@ -494,6 +512,10 @@ static int ahci_find_ata_port(void)
                 port_base,
                 AHCI_PORT_SIG
             );
+
+        debug_print("[AHCI] SATA signature: ");
+        debug_print_hex64((uint64_t)signature);
+        debug_print_line("");
 
         if (signature == AHCI_SIG_ATA)
             return (int)port;
@@ -609,8 +631,15 @@ static bool ahci_configure_port(void)
             resources->port_number
         );
 
+    debug_print_line("[AHCI-DBG] Stopping AHCI engine");
+
     if (!ahci_stop_engine(port_base))
+    {
+        debug_print_line("[AHCI-DBG] AHCI engine stop FAILED");
         return false;
+    }
+
+    debug_print_line("[AHCI-DBG] AHCI engine stopped");
 
     /*
      * Clear pending port errors.
@@ -670,7 +699,18 @@ static bool ahci_configure_port(void)
         AHCI_COMMAND_TABLE_SIZE
     );
 
-    return ahci_start_engine(port_base);
+    debug_print_line("[AHCI-DBG] Port DMA structures configured");
+    debug_print_line("[AHCI-DBG] Starting AHCI engine");
+
+    if (!ahci_start_engine(port_base))
+    {
+        debug_print_line("[AHCI-DBG] AHCI engine start FAILED");
+        return false;
+    }
+
+    debug_print_line("[AHCI-DBG] AHCI engine started");
+
+    return true;
 }
 
 
@@ -806,9 +846,146 @@ static bool ahci_issue_command(void)
             resources->port_number
         );
 
-    /*
-     * Slot 0 must not already be active.
-     */
+    AHCICommandHeader *header =
+        &resources->command_list_virtual[0];
+
+    AHCICommandTable *table =
+        resources->command_table_virtual;
+
+    AHCIRegisterFIS *fis =
+        (AHCIRegisterFIS *)table->command_fis;
+
+    AHCIPrdtEntry *prdt =
+        &table->prdt[0];
+
+    debug_print_line(
+        "[AHCI-DBG] ISSUE: command structures"
+    );
+
+    debug_print("[AHCI-DBG] Header sizeof: ");
+    debug_print_hex64(
+        (uint64_t)sizeof(AHCICommandHeader)
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] Table sizeof: ");
+    debug_print_hex64(
+        (uint64_t)sizeof(AHCICommandTable)
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] PRDT sizeof: ");
+    debug_print_hex64(
+        (uint64_t)sizeof(AHCIPrdtEntry)
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] Header virtual: ");
+    debug_print_hex64(
+        (uint64_t)(uintptr_t)header
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] Table virtual: ");
+    debug_print_hex64(
+        (uint64_t)(uintptr_t)table
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] FIS virtual: ");
+    debug_print_hex64(
+        (uint64_t)(uintptr_t)fis
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] PRDT virtual: ");
+    debug_print_hex64(
+        (uint64_t)(uintptr_t)prdt
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] Header flags: ");
+    debug_print_hex64(
+        (uint64_t)header->command_flags
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] Header CTBA: ");
+    debug_print_hex64(
+        (uint64_t)header->command_table_base
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] Header CTBAU: ");
+    debug_print_hex64(
+        (uint64_t)header->command_table_base_upper
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] Expected CTBA: ");
+    debug_print_hex64(
+        (uint64_t)resources->command_table_physical
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] FIS type: ");
+    debug_print_hex64(
+        (uint64_t)fis->fis_type
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] FIS flags: ");
+    debug_print_hex64(
+        (uint64_t)fis->flags
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] FIS command: ");
+    debug_print_hex64(
+        (uint64_t)fis->command
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] FIS device: ");
+    debug_print_hex64(
+        (uint64_t)fis->device
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] PRDT base: ");
+    debug_print_hex64(
+        (uint64_t)prdt->data_base
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] PRDT base upper: ");
+    debug_print_hex64(
+        (uint64_t)prdt->data_base_upper
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] PRDT count/flags: ");
+    debug_print_hex64(
+        (uint64_t)prdt->byte_count_and_flags
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] Command table physical: ");
+    debug_print_hex64(
+        (uint64_t)resources->command_table_physical
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] IDENTIFY physical: ");
+    debug_print_hex64(
+        (uint64_t)resources->identify_physical
+    );
+    debug_print_line("");
+
+    debug_print_line(
+        "[AHCI-DBG] ISSUE: writing command slot"
+    );
+
     uint32_t ci =
         ahci_mmio_read32(
             port_base,
@@ -816,20 +993,23 @@ static bool ahci_issue_command(void)
         );
 
     if (ci & 1U)
+    {
+        debug_print_line(
+            "[AHCI-DBG] ISSUE: slot 0 already active"
+        );
         return false;
+    }
 
-    /*
-     * Issue slot 0.
-     */
     ahci_mmio_write32(
         port_base,
         AHCI_PORT_CI,
         ci | 1U
     );
 
-    /*
-     * Poll for completion.
-     */
+    debug_print_line(
+        "[AHCI-DBG] ISSUE: command slot active"
+    );
+
     for (uint32_t timeout = 0;
          timeout < AHCI_COMMAND_TIMEOUT;
          timeout++)
@@ -840,20 +1020,106 @@ static bool ahci_issue_command(void)
                 AHCI_PORT_TFD
             );
 
-        if (status & AHCI_TFD_ERR)
-            return false;
-
         uint32_t current_ci =
             ahci_mmio_read32(
                 port_base,
                 AHCI_PORT_CI
             );
 
+        if (status & AHCI_TFD_ERR)
+        {
+            debug_print("[AHCI-DBG] ISSUE: TFD error: ");
+            debug_print_hex64((uint64_t)status);
+            debug_print_line("");
+            return false;
+        }
+
         if ((current_ci & 1U) == 0)
+        {
+            debug_print_line(
+                "[AHCI-DBG] ISSUE: command completed"
+            );
             return true;
+        }
 
         cpu_relax();
     }
+
+    debug_print_line(
+        "[AHCI-DBG] ISSUE: command TIMEOUT"
+    );
+
+    debug_print("[AHCI-DBG] ISSUE: timeout TFD: ");
+    debug_print_hex64(
+        (uint64_t)ahci_mmio_read32(
+            port_base,
+            AHCI_PORT_TFD
+        )
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] ISSUE: timeout CI: ");
+    debug_print_hex64(
+        (uint64_t)ahci_mmio_read32(
+            port_base,
+            AHCI_PORT_CI
+        )
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] ISSUE: timeout CMD: ");
+    debug_print_hex64(
+        (uint64_t)ahci_mmio_read32(
+            port_base,
+            AHCI_PORT_CMD
+        )
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] ISSUE: timeout IS: ");
+    debug_print_hex64(
+        (uint64_t)ahci_mmio_read32(
+            port_base,
+            AHCI_PORT_IS
+        )
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] ISSUE: timeout SERR: ");
+    debug_print_hex64(
+        (uint64_t)ahci_mmio_read32(
+            port_base,
+            AHCI_PORT_SERR
+        )
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] ISSUE: HBA GHC: ");
+    debug_print_hex64(
+        (uint64_t)ahci_mmio_read32(
+            g_ahci_controller.abar,
+            AHCI_GHC
+        )
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] ISSUE: HBA PI: ");
+    debug_print_hex64(
+        (uint64_t)ahci_mmio_read32(
+            g_ahci_controller.abar,
+            AHCI_PI
+        )
+    );
+    debug_print_line("");
+
+    debug_print("[AHCI-DBG] ISSUE: PORT SSTS: ");
+    debug_print_hex64(
+        (uint64_t)ahci_mmio_read32(
+            port_base,
+            AHCI_PORT_SSTS
+        )
+    );
+    debug_print_line("");
 
     return false;
 }
@@ -872,8 +1138,15 @@ static bool ahci_identify_device(void)
             resources->port_number
         );
 
+    debug_print_line("[AHCI-DBG] IDENTIFY: waiting for device");
+
     if (!ahci_wait_device_ready(port_base))
+    {
+        debug_print_line("[AHCI-DBG] IDENTIFY: device not ready");
         return false;
+    }
+
+    debug_print_line("[AHCI-DBG] IDENTIFY: device ready");
 
     /*
      * Clear the IDENTIFY buffer.
@@ -893,7 +1166,11 @@ static bool ahci_identify_device(void)
         AHCI_COMMAND_TABLE_SIZE
     );
 
+    debug_print_line("[AHCI-DBG] IDENTIFY: preparing command");
+
     ahci_prepare_command(false);
+
+    debug_print_line("[AHCI-DBG] IDENTIFY: command prepared");
 
     AHCICommandTable *table =
         resources->command_table_virtual;
@@ -922,14 +1199,27 @@ static bool ahci_identify_device(void)
     /*
      * Device/head register.
      *
-     * 0x40 selects LBA mode.
+     * IDENTIFY DEVICE does not require LBA mode.
      */
     fis->device =
-        0x40;
+        0x00;
+
+    debug_print_line("[AHCI-DBG] IDENTIFY: preparing PRDT");
 
     ahci_prepare_prdt();
 
-    return ahci_issue_command();
+    debug_print_line("[AHCI-DBG] IDENTIFY: PRDT prepared");
+    debug_print_line("[AHCI-DBG] IDENTIFY: issuing command");
+
+    if (!ahci_issue_command())
+    {
+        debug_print_line("[AHCI-DBG] IDENTIFY: command FAILED");
+        return false;
+    }
+
+    debug_print_line("[AHCI-DBG] IDENTIFY: command completed");
+
+    return true;
 }
 
 
@@ -1351,10 +1641,18 @@ bool xk_ahci_initialize(void)
          * Find a real ATA device.
          */
         int ata_port =
-            ahci_find_ata_port();
+    ahci_find_ata_port();
 
-        if (ata_port < 0)
-            return true;
+if (ata_port < 0)
+{
+    debug_print_line(
+        "[AHCI] No ATA disk found"
+    );
+    return true;
+}
+
+debug_print("[AHCI] ATA disk found on port ");
+debug_print_line("");
 
         /*
          * Allocate command/FIS/IDENTIFY DMA memory.
@@ -1362,6 +1660,7 @@ bool xk_ahci_initialize(void)
         if (!ahci_allocate_command_resources(
                 (uint8_t)ata_port))
         {
+            debug_print_line("[AHCI] Command resource allocation failed");
             return true;
         }
 
@@ -1370,6 +1669,7 @@ bool xk_ahci_initialize(void)
          */
         if (!ahci_configure_port())
         {
+            debug_print_line("[AHCI] Port configuration failed");
             ahci_free_command_resources();
             return true;
         }
@@ -1379,6 +1679,10 @@ bool xk_ahci_initialize(void)
          */
         if (!ahci_identify_device())
         {
+            debug_print_line(
+                "[AHCI] IDENTIFY DEVICE failed"
+            );
+
             ahci_stop_engine(
                 ahci_port_base(
                     (uint8_t)ata_port
@@ -1395,6 +1699,10 @@ bool xk_ahci_initialize(void)
          */
         if (!ahci_read_capacity())
         {
+            debug_print_line(
+                "[AHCI] Failed to read disk capacity"
+            );
+
             ahci_stop_engine(
                 ahci_port_base(
                     (uint8_t)ata_port
@@ -1411,6 +1719,10 @@ bool xk_ahci_initialize(void)
          */
         if (!ahci_register_block_device())
         {
+            debug_print_line(
+                "[AHCI] Block device registration failed"
+            );
+
             ahci_stop_engine(
                 ahci_port_base(
                     (uint8_t)ata_port
@@ -1420,6 +1732,92 @@ bool xk_ahci_initialize(void)
             ahci_free_command_resources();
 
             return true;
+        }
+
+        debug_print_line(
+            "[AHCI] Block device sda registered"
+        );
+
+        /*
+         * Temporary AHCI sector-read validation.
+         *
+         * Sector 0 of the QEMU test disk contains:
+         * XYRISOS-AHCI-READ-TEST-SECTOR-0
+         */
+        {
+            uint8_t read_test_buffer[AHCI_IDENTIFY_SIZE];
+
+            memset(
+                read_test_buffer,
+                0,
+                sizeof(read_test_buffer)
+            );
+
+            debug_print_line(
+                "[AHCI-DBG] READ TEST: reading sector 0"
+            );
+
+            if (ahci_block_read(
+                    &g_ahci_block_device,
+                    0,
+                    1,
+                    read_test_buffer) == 0)
+            {
+                static const uint8_t expected[] =
+                    "XYRISOS-AHCI-READ-TEST-SECTOR-0";
+
+                bool match = true;
+
+                for (size_t i = 0;
+                     i < sizeof(expected) - 1;
+                     i++)
+                {
+                    if (read_test_buffer[i] != expected[i])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                debug_print_line(
+                    "[AHCI-DBG] READ TEST: command completed"
+                );
+
+                debug_print_hex64(
+                    (uint64_t)read_test_buffer[0]
+                );
+
+                debug_print_hex64(
+                    (uint64_t)read_test_buffer[1]
+                );
+
+                debug_print_hex64(
+                    (uint64_t)read_test_buffer[2]
+                );
+
+                debug_print_hex64(
+                    (uint64_t)read_test_buffer[3]
+                );
+
+                if (match)
+                {
+                    debug_print_line(
+                        "[ OK ] AHCI sector read validation passed"
+                    );
+                }
+                else
+                {
+                    debug_print_line(
+                        "[FAIL] AHCI sector read data mismatch"
+                    );
+                }
+            }
+            else
+            {
+                debug_print_line(
+                    "[FAIL] AHCI sector read command failed"
+                );
+            }
         }
 
         return true;

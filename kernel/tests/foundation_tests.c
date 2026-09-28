@@ -14,6 +14,13 @@
 #include "drivers/keyboard.h"
 #include "drivers/mouse.h"
 #include "drivers/pci.h"
+#include "network/network.h"
+#include "power/power.h"
+#include "power/battery.h"
+#include "power/thermal.h"
+#include "audio/audio.h"
+#include "debug/print.h"
+#include "input/input.h"
 
 #include "../boot/boot.h"
 
@@ -458,6 +465,11 @@ static bool test_driver_initialize(void)
     return true;
 }
 
+static bool test_driver_initialize_failure(void)
+{
+    return false;
+}
+
 static uint32_t test_driver_shutdown_count;
 
 static void test_driver_shutdown(void)
@@ -547,6 +559,72 @@ static void test_driver_manager(void)
         !xk_driver_unregister(
             "does-not-exist"
         )
+    );
+
+    XKDriver failed_driver = {
+        .name = "foundation-failed-driver",
+        .type = XK_DRIVER_CUSTOM,
+        .state = XK_DRIVER_UNINITIALIZED,
+        .initialize = test_driver_initialize_failure,
+        .shutdown = NULL
+    };
+
+    test_ok(
+        "Driver Test: Failure Driver Registration",
+        xk_driver_register(&failed_driver)
+    );
+
+    xk_driver_initialize_all();
+
+    test_ok(
+        "Driver Test: Failed Initialization State",
+        failed_driver.state == XK_DRIVER_FAILED
+    );
+
+    test_ok(
+        "Driver Test: Failed Driver Unregister",
+        xk_driver_unregister("foundation-failed-driver") &&
+        xk_driver_count() == 0
+    );
+
+    test_driver_shutdown_count = 0;
+
+    XKDriver cleanup_driver = {
+        .name = "foundation-cleanup-driver",
+        .type = XK_DRIVER_CUSTOM,
+        .state = XK_DRIVER_UNINITIALIZED,
+        .initialize = test_driver_initialize,
+        .shutdown = test_driver_shutdown
+    };
+
+    test_ok(
+        "Driver Test: Cleanup Driver Registration",
+        xk_driver_register(&cleanup_driver)
+    );
+
+    xk_driver_initialize_all();
+
+    test_ok(
+        "Driver Test: Cleanup Driver Running",
+        cleanup_driver.state == XK_DRIVER_RUNNING
+    );
+
+    xk_driver_shutdown_all();
+
+    test_ok(
+        "Driver Test: Shutdown All Cleanup",
+        test_driver_shutdown_count == 1
+    );
+
+    test_ok(
+        "Driver Test: Shutdown All Resets State",
+        cleanup_driver.state == XK_DRIVER_UNINITIALIZED
+    );
+
+    test_ok(
+        "Driver Test: Cleanup Driver Unregister",
+        xk_driver_unregister("foundation-cleanup-driver") &&
+        xk_driver_count() == 0
     );
 }
 
@@ -654,9 +732,356 @@ static void test_driver_input_and_pci(void)
 
 /*
  * ============================================================
+ * Input Subsystem Tests
+ * ============================================================
+ */
+
+static void test_input_subsystem(void)
+{
+    xk_input_shutdown();
+
+    test_ok(
+        "Input Test: Initialization",
+        xk_input_init()
+    );
+
+    test_ok(
+        "Input Test: Keyboard Device Registered",
+        xk_input_device_count() >= 1 &&
+        xk_input_device_get(0) != NULL &&
+        xk_input_device_get(0)->type == XK_INPUT_DEVICE_KEYBOARD
+    );
+
+    test_ok(
+        "Input Test: Mouse Device Registered",
+        xk_input_device_count() >= 2 &&
+        xk_input_device_get(1) != NULL &&
+        xk_input_device_get(1)->type == XK_INPUT_DEVICE_MOUSE
+    );
+
+    /*
+     * Generate a keyboard event through the existing
+     * hardware-independent keyboard parser.
+     */
+    (void)xk_keyboard_process_scancode(0x1E); /* A */
+
+    test_ok(
+        "Input Test: Keyboard Event Translation",
+        xk_input_poll() > 0
+    );
+
+    XKInputEvent input_event = {0};
+
+    test_ok(
+        "Input Test: Keyboard Event Available",
+        xk_input_event_available()
+    );
+
+    test_ok(
+        "Input Test: Keyboard Event Data",
+        xk_input_read_event(&input_event) &&
+        input_event.type == XK_INPUT_EVENT_KEY &&
+        input_event.data.key.ascii == 'a' &&
+        input_event.data.key.pressed
+    );
+
+    /*
+     * Generate a mouse event through the existing
+     * hardware-independent mouse packet parser.
+     */
+    (void)xk_mouse_process_byte(0x09); /* sync + left button */
+    (void)xk_mouse_process_byte(5);
+    (void)xk_mouse_process_byte(0xFE); /* -2 */
+
+    test_ok(
+        "Input Test: Mouse Event Translation",
+        xk_input_poll() > 0
+    );
+
+    bool mouse_event_found = false;
+
+    while (xk_input_event_available())
+    {
+        XKInputEvent event = {0};
+
+        if (!xk_input_read_event(&event))
+            break;
+
+        if (event.type == XK_INPUT_EVENT_MOUSE_MOVE &&
+            event.data.mouse_move.x == 5 &&
+            event.data.mouse_move.y == 2)
+        {
+            mouse_event_found = true;
+            break;
+        }
+    }
+
+    test_ok(
+        "Input Test: Mouse Event Data",
+        mouse_event_found
+    );
+
+    xk_input_shutdown();
+
+    test_ok(
+        "Input Test: Shutdown",
+        xk_input_device_count() == 0
+    );
+}
+
+/*
+ * ============================================================
+ * Network Hardware Tests
+ * ============================================================
+ */
+
+static void test_network_hardware(void)
+{
+    xk_network_init();
+
+    uint32_t count =
+        xk_network_device_count();
+
+    test_ok(
+        "Network Test: Initialization",
+        xk_network_available() == (count != 0)
+    );
+
+    /*
+     * Validate every network device exposed by
+     * the network hardware abstraction.
+     */
+    for (uint32_t i = 0; i < count; i++)
+    {
+        xk_network_device_t device;
+
+        test_ok(
+            "Network Test: Device Metadata",
+            xk_network_device_get(i, &device)
+        );
+
+        if (xk_network_device_get(i, &device))
+        {
+            test_ok(
+                "Network Test: PCI Network Class",
+                device.class_code == 0x02
+            );
+
+            test_ok(
+                "Network Test: Vendor ID Valid",
+                device.vendor_id != 0xFFFFU
+            );
+        }
+    }
+
+    test_ok(
+        "Network Test: Invalid Device Rejected",
+        !xk_network_device_get(
+            count,
+            &(xk_network_device_t){0}
+        )
+    );
+
+    test_ok(
+        "Network Test: Null Output Rejected",
+        !xk_network_device_get(
+            0,
+            NULL
+        )
+    );
+}
+
+/*
+ * ============================================================
  * Foundation Test Entry Point
  * ============================================================
  */
+
+/*
+ * ============================================================
+ * Power Management
+ * ============================================================
+ */
+
+static void test_power_manager(void)
+{
+    test_ok(
+        "Power Test: Initialization",
+        xk_power_init()
+    );
+
+    test_ok(
+        "Power Test: Running State",
+        xk_power_state() == XK_POWER_STATE_RUNNING
+    );
+
+    test_ok(
+        "Battery Test: Initialization",
+        xk_battery_init()
+    );
+
+    test_ok(
+        "Battery Test: Backend Status",
+        !xk_battery_available()
+    );
+
+    test_ok(
+        "Battery Test: Charging Status",
+        !xk_battery_is_charging()
+    );
+
+    uint8_t battery_percentage = 0;
+
+    test_ok(
+        "Battery Test: Percentage Unavailable",
+        !xk_battery_percentage(&battery_percentage)
+    );
+
+    test_ok(
+        "Thermal Test: Initialization",
+        xk_thermal_init()
+    );
+
+    test_ok(
+        "Thermal Test: Backend Status",
+        !xk_thermal_available()
+    );
+
+    int32_t temperature = 0;
+
+    test_ok(
+        "Thermal Test: Reading Unavailable",
+        !xk_thermal_temperature_celsius(&temperature)
+    );
+}
+
+/*
+ * ============================================================
+ * Audio Subsystem
+ * ============================================================
+ */
+
+static void test_audio_subsystem(void)
+{
+    test_ok(
+        "Audio Test: Initialization",
+        xk_audio_init()
+    );
+
+    test_ok(
+        "Audio Test: Subsystem Initialized",
+        xk_audio_available() ||
+        xk_audio_device_count() == 0
+    );
+
+    /*
+     * No audio hardware is currently exposed by QEMU, so
+     * zero devices is a valid result.
+     */
+    test_ok(
+        "Audio Test: Device Enumeration",
+        xk_audio_device_count() <= XK_AUDIO_MAX_DEVICES
+    );
+
+    /*
+     * Invalid device IDs must be rejected safely.
+     */
+    test_ok(
+        "Audio Test: Invalid Volume Device Rejected",
+        !xk_audio_set_volume(
+            0xFFFFFFFFu,
+            50
+        )
+    );
+
+    test_ok(
+        "Audio Test: Invalid Mute Device Rejected",
+        !xk_audio_set_mute(
+            0xFFFFFFFFu,
+            true
+        )
+    );
+
+    test_ok(
+        "Audio Test: Invalid Format Device Rejected",
+        !xk_audio_set_format(
+            0xFFFFFFFFu,
+            48000,
+            2,
+            XK_AUDIO_FORMAT_PCM_S16
+        )
+    );
+
+    /*
+     * Invalid format parameters must be rejected.
+     */
+    if (xk_audio_device_count() > 0)
+    {
+        const XKAudioDevice *device =
+            xk_audio_device_get(0);
+
+        if (device != NULL)
+        {
+            test_ok(
+                "Audio Test: Invalid Volume Rejected",
+                !xk_audio_set_volume(
+                    device->id,
+                    101
+                )
+            );
+
+            test_ok(
+                "Audio Test: Invalid Format Rejected",
+                !xk_audio_set_format(
+                    device->id,
+                    0,
+                    0,
+                    XK_AUDIO_FORMAT_UNKNOWN
+                )
+            );
+        }
+    }
+
+    /*
+     * Out-of-range enumeration must return NULL.
+     */
+    test_ok(
+        "Audio Test: Invalid Device Index Rejected",
+        xk_audio_device_get(
+            XK_AUDIO_MAX_DEVICES
+        ) == NULL
+    );
+
+    /*
+     * No hardware backend exists yet, therefore playback and
+     * capture must fail safely rather than claiming success.
+     */
+    test_ok(
+        "Audio Test: Playback Safety",
+        !xk_audio_play(
+            0xFFFFFFFFu,
+            NULL,
+            0
+        )
+    );
+
+    test_ok(
+        "Audio Test: Capture Safety",
+        !xk_audio_capture(
+            0xFFFFFFFFu,
+            NULL,
+            0
+        )
+    );
+
+    debug_print_line("[DEBUG] Audio tests: capture returned");
+
+    debug_print_line("[DEBUG] Audio tests: about to complete");
+
+    debug_print_line(
+        "[ OK ] Audio Subsystem Tests Completed"
+    );
+}
 
 void run_foundation_tests(void)
 {
@@ -668,4 +1093,8 @@ void run_foundation_tests(void)
     test_driver_manager();
     test_registration_only_driver();
     test_driver_input_and_pci();
+    test_input_subsystem();
+    test_power_manager();
+    test_audio_subsystem();
+    test_network_hardware();
 }

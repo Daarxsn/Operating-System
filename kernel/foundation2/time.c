@@ -1,4 +1,5 @@
 #include "foundation/time.h"
+#include "../debug/print.h"
 
 #include <stddef.h>
 
@@ -40,11 +41,14 @@ void xk_time_init(void)
 
 bool xk_time_set_frequency(uint32_t frequency_hz)
 {
+    debug_print_line("TIME DEBUG: ENTERED FUNCTION");
+    debug_print_line("TIME DEBUG: entered xk_time_set_frequency");
     if (frequency_hz == 0)
         return false;
 
     kernel_frequency_hz = frequency_hz;
     millisecond_remainder = 0;
+    debug_print_line("TIME DEBUG: returning from xk_time_set_frequency");
     return true;
 }
 
