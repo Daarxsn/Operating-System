@@ -44,6 +44,9 @@ set(KERNEL_SOURCES
     kernel/fs/vfs.c
     kernel/graphics/font.c
     kernel/graphics/framebuffer.c
+    kernel/power/power.c
+    kernel/power/battery.c
+    kernel/power/thermal.c
     kernel/graphics/graphics.c
     kernel/graphics/primitives.c
     kernel/image/image.c
@@ -52,6 +55,14 @@ set(KERNEL_SOURCES
     kernel/lib/string.c
     kernel/loader/elf.c
     kernel/logger/logger.c
+    kernel/hardware/hardware_inventory.c
+    kernel/hardware/hardware_api.c
+    kernel/hardware/pci_inventory.c
+    kernel/audio/audio.c
+    kernel/network/network.c
+    kernel/drivers/block.c
+    kernel/drivers/ahci.c
+    kernel/drivers/xhci.c
     kernel/memory/bitmap.c
     kernel/memory/heap.c
     kernel/memory/hhdm.c
@@ -80,6 +91,7 @@ set(KERNEL_SOURCES
     kernel/ui/ui.c
     kernel/boot/boot.c
     kernel/boot/splash.c
+    kernel/input/input.c
 )
 
 add_executable(kernel.elf

@@ -5,6 +5,7 @@
 #include "../debug/print.h"
 #include "../graphics/framebuffer.h"
 #include "../graphics/font.h"
+#include "../hardware/hardware_api.h"
 
 /*
  * -------------------------------------------------------
@@ -59,6 +60,50 @@ static void boot_ui_record(
     boot_ui_entries[boot_ui_count].type = type;
 
     boot_ui_count++;
+}
+
+void boot_hardware_summary(void)
+{
+    boot_ui_record(
+        "Hardware Inventory Ready",
+        BOOT_STATUS_OK
+    );
+
+    boot_ui_record(
+        xk_hardware_usb_available()
+            ? "USB Controller: Detected"
+            : "USB Controller: Not Detected",
+        xk_hardware_usb_available()
+            ? BOOT_STATUS_OK
+            : BOOT_STATUS_WARN
+    );
+
+    boot_ui_record(
+        xk_hardware_storage_available()
+            ? "Storage: Detected"
+            : "Storage: Not Detected",
+        xk_hardware_storage_available()
+            ? BOOT_STATUS_OK
+            : BOOT_STATUS_WARN
+    );
+
+    boot_ui_record(
+        xk_hardware_network_available()
+            ? "Network Hardware: Detected"
+            : "Network Hardware: Not Detected",
+        xk_hardware_network_available()
+            ? BOOT_STATUS_OK
+            : BOOT_STATUS_WARN
+    );
+
+    boot_ui_record(
+        xk_hardware_audio_available()
+            ? "Audio Hardware: Detected"
+            : "Audio Hardware: Not Detected",
+        xk_hardware_audio_available()
+            ? BOOT_STATUS_OK
+            : BOOT_STATUS_WARN
+    );
 }
 /*
  * -------------------------------------------------------

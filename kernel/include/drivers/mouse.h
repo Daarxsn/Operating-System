@@ -27,6 +27,7 @@ void xk_mouse_irq_handler(registers_t *regs);
 
 /* Hardware-independent packet processing used by IRQ path and tests. */
 bool xk_mouse_process_byte(uint8_t byte);
+bool xk_mouse_push_event(const XKMouseEvent *event);
 bool xk_mouse_read_event(XKMouseEvent *event);
 bool xk_mouse_event_available(void);
 int16_t xk_mouse_x(void);

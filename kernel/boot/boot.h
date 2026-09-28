@@ -29,5 +29,6 @@ void boot_ui_fail(const char *text);
  * This renderer never scrolls the framebuffer.
  */
 void boot_status_render(void);
+void boot_hardware_summary(void);
 
 #endif

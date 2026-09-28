@@ -53,9 +53,14 @@ void xk_serial_write(char c)
         return;
     }
 
-    while (!serial_ready());
-
-    outb(XK_COM1, c);
+    for (uint32_t timeout = 0; timeout < 100000U; timeout++)
+    {
+        if (serial_ready())
+        {
+            outb(XK_COM1, c);
+            return;
+        }
+    }
 }
 
 /* ------------------------------------------------------------

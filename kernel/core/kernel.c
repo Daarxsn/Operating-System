@@ -10,9 +10,13 @@
 #include "foundation/event.h"
 #include "foundation/time.h"
 #include "foundation/config.h"
+#include "hardware/hardware_api.h"
+#include "network/network.h"
+#include "audio/audio.h"
 
 #include "graphics/framebuffer.h"
 #include "ui/ui.h"
+#include "power/power.h"
 
 #include "cpu/gdt.h"
 #include "cpu/idt.h"
@@ -22,6 +26,12 @@
 #include "cpu/irq.h"
 #include "cpu/lapic.h"
 #include "cpu/ioapic.h"
+
+#include "../cpu/cpu.h"
+#include "../include/drivers/block.h"
+#include "../include/drivers/ahci.h"
+#include "../hardware/hardware_inventory.h"
+#include "../hardware/pci_inventory.h"
 
 #include "memory/memory_map.h"
 #include "memory/hhdm.h"
@@ -41,6 +51,8 @@
 #include "drivers/mouse.h"
 #include "drivers/serial.h"
 #include "drivers/pci.h"
+#include "drivers/xhci.h"
+#include "input/input.h"
 
 #include "fs/vfs.h"
 #include "fs/ramfs.h"
@@ -81,6 +93,7 @@ static void preemption_test_b(void);
 static void context_test_a(void);
 static void context_test_b(void);
 static void context_test_coordinator(void);
+static void input_service_thread(void);
 static volatile uint64_t context_test_initial_if0_count = 0;
 
 /* Shared state for the timer-preemption runtime test.  The test threads
@@ -133,6 +146,13 @@ static volatile struct limine_mp_request mp_request =
     .flags = 0
 };
 
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_rsdp_request rsdp_request =
+{
+    .id = LIMINE_RSDP_REQUEST_ID,
+    .revision = 0
+};
+
 
 __attribute__((used, section(".limine_requests_start")))
 static volatile uint64_t limine_requests_start_marker[] =
@@ -158,8 +178,79 @@ static void kernel_idle(void)
 
 
 /* -------------------------------------------------
+   RSDP diagnostic
+------------------------------------------------- */
+
+static void kernel_check_rsdp(void)
+{
+    if (rsdp_request.response == NULL)
+    {
+        debug_print_line("[ACPI] RSDP response not provided by Limine");
+        return;
+    }
+
+    uintptr_t rsdp_address =
+        (uintptr_t)rsdp_request.response->address;
+
+    if (rsdp_address == 0)
+    {
+        debug_print_line("[ACPI] RSDP address is NULL");
+        return;
+    }
+
+    debug_print_line("[ACPI] Limine RSDP response received");
+    debug_print_line("[ACPI] RSDP address is non-zero");
+
+    debug_print("RSDP address = ");
+    debug_print_hex64((uint64_t)rsdp_address);
+    debug_print_line("");
+
+    debug_print("HHDM offset = ");
+    debug_print_hex64((uint64_t)hhdm_offset());
+    debug_print_line("");
+
+    /*
+     * Limine provides the RSDP address directly.
+     * Use the address without applying the HHDM offset again.
+     */
+    const uint8_t *rsdp =
+        (const uint8_t *)rsdp_address;
+
+    debug_print("RSDP virtual address = ");
+    debug_print_hex64((uint64_t)rsdp);
+    debug_print_line("");
+
+    if (rsdp[0] != 'R' ||
+        rsdp[1] != 'S' ||
+        rsdp[2] != 'D' ||
+        rsdp[3] != ' ' ||
+        rsdp[4] != 'P' ||
+        rsdp[5] != 'T' ||
+        rsdp[6] != 'R')
+    {
+        debug_print_line("[ACPI] RSDP signature invalid");
+        return;
+    }
+
+    uint8_t checksum = 0;
+
+    for (size_t i = 0; i < 20; ++i)
+        checksum = (uint8_t)(checksum + rsdp[i]);
+
+    if (checksum != 0)
+    {
+        debug_print_line("[ACPI] RSDP checksum invalid");
+        return;
+    }
+
+    debug_print_line("[ACPI] RSDP signature valid");
+    debug_print_line("[ACPI] RSDP checksum valid");
+}
+
+/* -------------------------------------------------
    Boot Verification
 ------------------------------------------------- */
+
 
 static struct limine_framebuffer *kernel_verify_bootloader(void)
 {
@@ -311,9 +402,47 @@ static void kernel_initialize_interrupts(void)
     );
     debug_print_line("");
 
+        /* -------------------------------------------------
+       CPU Hardware Information
+    ------------------------------------------------- */
+
+    struct limine_mp_response *mp_response =
+        mp_request.response;
+
+    if (mp_response != NULL)
+    {
+        uint64_t cpu_count = mp_response->cpu_count;
+
+        if (cpu_count > UINT32_MAX)
+            cpu_count = UINT32_MAX;
+
+        cpu_set_processor_count(
+            (uint32_t)cpu_count
+        );
+
+        boot_step_ok(
+            "CPU Hardware Information Detected"
+        );
+        debug_print_line("CPU INFO DEBUG: after CPU hardware boot step");
+    }
+    else
+    {
+        cpu_set_processor_count(1);
+
+        boot_step_warn(
+            "CPU Hardware Information Unavailable"
+        );
+        debug_print_line("CPU INFO DEBUG: after CPU hardware warning");
+    }
+
+
+    debug_print_line("IOAPIC DEBUG: before ioapic_initialize");
+
     /* -------------------------------------------------
        IOAPIC
     ------------------------------------------------- */
+
+    debug_print_line("IOAPIC DEBUG: calling ioapic_initialize");
 
     if (!ioapic_initialize())
     {
@@ -337,7 +466,11 @@ static void kernel_initialize_interrupts(void)
        PIT
     ------------------------------------------------- */
 
+    debug_print_line("ZZZ_BEFORE_PIT_CALL");
     pit_initialize(100);
+    debug_print_line("INT DEBUG: after PIT initialize");
+    __asm__ volatile ("cli" ::: "memory");
+    debug_print_line("INT DEBUG: interrupts disabled after PIT");
 
     boot_step_ok(
         "Programmable Interval Timer Initialized"
@@ -356,36 +489,52 @@ static void kernel_initialize_interrupts(void)
      * We do not yet parse MADT, so this mapping is supplied by the
      * small platform fallback in ioapic_isa_irq_to_gsi().
      */
+    debug_print_line("ROUTE DEBUG: before GSI calculation");
+
     const uint8_t pit_gsi =
         ioapic_isa_irq_to_gsi(0);
+
+    debug_print_line("ROUTE DEBUG: PIT GSI calculated");
 
     const uint8_t keyboard_gsi =
         ioapic_isa_irq_to_gsi(1);
 
+    debug_print_line("ROUTE DEBUG: keyboard GSI calculated");
+
     const uint8_t mouse_gsi =
         ioapic_isa_irq_to_gsi(12);
 
+    debug_print_line("ROUTE DEBUG: mouse GSI calculated");
+
+       debug_print_line("IOAPIC DEBUG: before PIT route");
     ioapic_set_irq(
         pit_gsi,
         32,
         destination_lapic
     );
+    debug_print_line("IOAPIC DEBUG: after PIT route");
 
+    debug_print_line("IOAPIC DEBUG: before keyboard route");
     ioapic_set_irq(
         keyboard_gsi,
         33,
         destination_lapic
     );
+    debug_print_line("IOAPIC DEBUG: after keyboard route");
 
+    debug_print_line("IOAPIC DEBUG: before mouse route");
     ioapic_set_irq(
         mouse_gsi,
         44,
         destination_lapic
     );
+    debug_print_line("IOAPIC DEBUG: after mouse route");
 
     /* -------------------------------------------------
        APIC routing diagnostic
     ------------------------------------------------- */
+
+    debug_print_line("IOAPIC DEBUG: all routes programmed");
 
     debug_print_line(
         "========== IOAPIC ROUTING DIAGNOSTIC =========="
@@ -398,6 +547,8 @@ static void kernel_initialize_interrupts(void)
     debug_print_line("");
 
     debug_print("IOAPIC GSI 0 LOW  = ");
+
+    debug_print_line("IOAPIC DEBUG: before reading GSI 0 LOW");
     debug_print_hex64(
         (uint64_t)ioapic_read_redir_low(0)
     );
@@ -1109,6 +1260,19 @@ else
     context_test_complete = true;
 }
 
+/* -------------------------------------------------
+   Input Service Thread
+------------------------------------------------- */
+
+static void input_service_thread(void)
+{
+    while (1)
+    {
+        (void)xk_input_poll();
+        scheduler_sleep_current(1);
+    }
+}
+
 static process_t *user_test_process = NULL;
 static process_t *userspace_init_process = NULL;
 
@@ -1388,11 +1552,193 @@ static void kernel_initialize_kernel(void)
     );
 
 
+    xk_driver_register(
+        &xk_xhci_driver
+    );
+
+    boot_step_ok(
+        "xHCI USB Controller Driver Registered"
+    );
+
+    xk_driver_register(
+        &xk_audio_driver
+    );
+
+    boot_step_ok(
+        "Audio Driver Registered"
+    );
+
+
     /*
      * Initialize all registered drivers only after the complete
      * driver set has been registered.
      */
     xk_driver_initialize_all();
+
+    /*
+     * Initialize the common input subsystem after the
+     * hardware drivers are ready.
+     */
+    if (xk_input_init())
+    {
+        boot_step_ok(
+            "Input Subsystem Initialized"
+        );
+    }
+    else
+    {
+        boot_step_warn(
+            "Input Subsystem Initialization Failed"
+        );
+    }
+
+    /*
+ * Verify audio subsystem initialization.
+ */
+if (xk_audio_available())
+{
+    boot_step_ok(
+        "Audio Controller Initialized"
+    );
+
+    xk_audio_dump();
+}
+else
+{
+    debug_print_line(
+        "[AUDIO] No usable audio controller detected"
+    );
+}
+
+    /*
+     * Verify xHCI USB controller initialization.
+     */
+    if (xk_xhci_is_present())
+    {
+        XKXHCIController xhci =
+            xk_xhci_controller_info();
+
+        boot_step_ok(
+            "xHCI USB Controller Initialized"
+        );
+
+        debug_print("xHCI Vendor ID: ");
+        debug_print_hex64(xhci.vendor_id);
+        debug_print("xHCI Device ID: ");
+        debug_print_hex64(xhci.device_id);
+        debug_print("xHCI MMIO Base: ");
+        debug_print_hex64(xhci.mmio_base);
+    }
+    else
+    {
+        boot_step_warn(
+            "xHCI USB Controller Not Present"
+        );
+    }
+
+    /*
+     * Block device subsystem.
+     */
+    if (xk_block_initialize())
+    {
+        boot_ui_ok(
+            "Block Device Subsystem Initialized"
+        );
+    }
+    else
+    {
+        boot_ui_warn(
+            "Block Device Subsystem Initialization Failed"
+        );
+    }
+
+    /*
+     * AHCI SATA controller detection.
+     */
+    if (xk_ahci_initialize())
+    {
+        XKAHCIController ahci =
+            xk_ahci_controller_info();
+
+        boot_ui_ok(
+            "AHCI SATA Controller Detected"
+        );
+
+        debug_print("AHCI Vendor ID: ");
+        debug_print_hex64(
+            (uint64_t)ahci.vendor_id
+        );
+        debug_print_line("");
+
+        debug_print("AHCI Device ID: ");
+        debug_print_hex64(
+            (uint64_t)ahci.device_id
+        );
+        debug_print_line("");
+
+        debug_print("AHCI ABAR: ");
+        debug_print_hex64(
+            (uint64_t)ahci.abar
+        );
+        debug_print_line("");
+
+        debug_print("AHCI Implemented Ports: ");
+                for (uint32_t port_index = 0;
+             port_index < xk_ahci_port_count();
+             port_index++)
+        {
+            XKAHCIPort port;
+
+            if (xk_ahci_port_get(port_index, &port) != 0)
+                continue;
+
+            debug_print("AHCI Port ");
+            debug_print_hex64(
+                (uint64_t)port.port_number
+            );
+
+            if (port.device_present)
+            {
+                debug_print_line(
+                    ": Device Present"
+                );
+            }
+            else
+            {
+                debug_print_line(
+                    ": No Device"
+                );
+            }
+
+            debug_print("AHCI Port Device Type: ");
+            debug_print_hex64(
+                (uint64_t)port.device_type
+            );
+            debug_print_line("");
+        }
+
+        debug_print_hex64(
+            (uint64_t)ahci.implemented_ports
+        );
+        debug_print_line("");
+    }
+    else
+    {
+        boot_ui_warn(
+            "AHCI SATA Controller Not Detected"
+        );
+    }
+
+    /*
+     * Hardware inventory.
+     */
+    pci_inventory_init();
+    pci_inventory_dump();
+
+    xk_hardware_init();
+    hardware_inventory_dump();
+
+    xk_network_init();
 
     /*
      * Kernel file-system and system-call foundations.
@@ -1656,6 +2002,34 @@ else
     );
 }
 
+/* -------------------------------------------------
+   Input Service Thread
+------------------------------------------------- */
+
+thread_t *input_service_thread_handle =
+    thread_create(
+        kernel_process,
+        input_service_thread,
+        THREAD_PRIORITY_NORMAL
+    );
+
+if (input_service_thread_handle == NULL)
+{
+    boot_step_fail(
+        "Failed To Create Input Service Thread"
+    );
+}
+else
+{
+    scheduler_add_thread(
+        input_service_thread_handle
+    );
+
+    boot_step_ok(
+        "Input Service Thread Created"
+    );
+}
+
 launch_userspace_init_process();
 
 debug_print("RING3 TEST: LAUNCH CALL RETURNED\n");
@@ -1817,13 +2191,34 @@ void kernel_main(void)
 
     kernel_initialize_kernel();
 
+    debug_print_line("FLOW DEBUG: returned from kernel_initialize_kernel");
+
+    /* -------------------------------------------------
+       ACPI / RSDP Runtime Check
+    ------------------------------------------------- */
+
+    debug_print_line("FLOW DEBUG: before kernel_check_rsdp");
+
+    kernel_check_rsdp();
+
 
   /* -------------------------------------------------
    Interrupts
 ------------------------------------------------- */
+
+    /* -------------------------------------------------
+       Power Management
+    ------------------------------------------------- */
+
+    debug_print_line("POWER FLOW: before xk_power_init");
+    xk_power_init();
+    debug_print_line("POWER FLOW: after xk_power_init");
+
 kernel_initialize_interrupts();
 
 boot_splash_show();
+
+boot_hardware_summary();
 
 boot_status_render();
     /*

@@ -32,6 +32,16 @@ static bool queue_push(const XKKeyboardEvent *event)
     return true;
 }
 
+bool xk_keyboard_push_event(const XKKeyboardEvent *event)
+{
+    if (event == NULL)
+    {
+        return false;
+    }
+
+    return queue_push(event);
+}
+
 bool xk_keyboard_event_available(void)
 {
     return queue_head != queue_tail;

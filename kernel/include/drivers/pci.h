@@ -42,6 +42,21 @@ void xk_pci_shutdown(void);
 uint32_t xk_pci_read32(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset);
 uint16_t xk_pci_read16(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset);
 uint8_t xk_pci_read8(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset);
+
+void xk_pci_write16(
+    uint8_t bus,
+    uint8_t device,
+    uint8_t function,
+    uint8_t offset,
+    uint16_t value
+);
+
+void xk_pci_enable_bus_master(
+    uint8_t bus,
+    uint8_t device,
+    uint8_t function
+);
+
 uint16_t xk_pci_vendor_id(uint8_t bus, uint8_t device, uint8_t function);
 void xk_pci_scan(void);
 uint32_t xk_pci_device_count(void);

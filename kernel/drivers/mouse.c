@@ -69,6 +69,22 @@ static bool queue_push(const XKMouseEvent *event)
     return true;
 }
 
+bool xk_mouse_push_event(const XKMouseEvent *event)
+{
+    if (event == NULL)
+        return false;
+
+    if (!event->overflow_x)
+        mouse_x_position += event->x;
+
+    if (!event->overflow_y)
+        mouse_y_position += event->y;
+
+    mouse_buttons_state = event->buttons;
+
+    return queue_push(event);
+}
+
 bool xk_mouse_event_available(void)
 {
     return queue_head != queue_tail;
