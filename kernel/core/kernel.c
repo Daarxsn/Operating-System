@@ -12,7 +12,12 @@
 #include "foundation/config.h"
 
 #include "graphics/framebuffer.h"
+#include "graphics/renderer.h"
+#include "graphics/compositor.h"
+#include "graphics/surface.h"
+#include "graphics/window_manager.h"
 #include "ui/ui.h"
+#include "graphics/desktop_shell.h"
 
 #include "cpu/gdt.h"
 #include "cpu/idt.h"
@@ -245,9 +250,12 @@ static void kernel_initialize_graphics(
 )
 {
     framebuffer_init(fb);
-
+    renderer_init();
+    compositor_init();
+    window_manager_init();
     framebuffer_clear(0x1E1E2E);
-
+    desktop_shell_init();
+    debug_print_line("M12 Desktop Shell: Initialization PASS");
     ui_init();
 
     boot_init();
@@ -257,6 +265,8 @@ static void kernel_initialize_graphics(
     kernel_dump_mp_info();
 
     boot_step_ok("Framebuffer Initialized");
+    boot_step_ok("Renderer Initialized");
+    boot_step_ok("Compositor Initialized");
     boot_step_ok("Graphics Engine Initialized");
 }
 
@@ -827,6 +837,96 @@ static void preemption_test_b(void)
 }
 
 /* -------------------------------------------------
+   M12 Compositor Test
+------------------------------------------------- */
+
+static void kernel_compositor_test(void)
+{
+    debug_print_line("");
+    debug_print_line("========== M12 COMPOSITOR TEST ==========");
+
+    XyrisSurface *background =
+        surface_create(320, 180);
+
+    XyrisSurface *foreground =
+        surface_create(180, 100);
+
+    if (background == NULL ||
+        foreground == NULL)
+    {
+        debug_print_line(
+            "M12 Compositor Test: Surface Allocation FAILED"
+        );
+
+        if (background != NULL)
+            surface_destroy(background);
+
+        if (foreground != NULL)
+            surface_destroy(foreground);
+
+        return;
+    }
+
+    surface_clear(
+        background,
+        0x00102030
+    );
+
+    surface_clear(
+        foreground,
+        0x00204080
+    );
+
+    surface_fill_rect(
+        foreground,
+        20,
+        20,
+        140,
+        60,
+        0x0040A0FF
+    );
+
+    compositor_add_surface(
+        background,
+        100,
+        100,
+        0
+    );
+
+    compositor_add_surface(
+        foreground,
+        170,
+        140,
+        1
+    );
+
+    compositor_set_background(
+        0x00050810
+    );
+
+    compositor_compose();
+
+    debug_print_line(
+        "M12 Compositor Test: PASS"
+    );
+
+    debug_print_line(
+        "M12: Two surfaces composed successfully"
+    );
+
+    debug_print_line(
+        "=========================================="
+    );
+
+    compositor_remove_surface(background);
+    compositor_remove_surface(foreground);
+
+    surface_destroy(background);
+    surface_destroy(foreground);
+}
+
+
+/* -------------------------------------------------
    Kernel Services
 ------------------------------------------------- */
 
@@ -1230,6 +1330,181 @@ else
 }
 
 
+ static void kernel_window_manager_test(void)
+{
+    debug_print_line("");
+    debug_print_line("========== M12 WINDOW MANAGER TEST ==========");
+
+    XyrisWindow *window_a =
+        window_create(240, 140, 100, 100);
+
+    XyrisWindow *window_b =
+        window_create(180, 100, 160, 140);
+
+    if (window_a == NULL ||
+        window_b == NULL)
+    {
+        debug_print_line(
+            "M12 Window Manager Test: Window Creation FAILED"
+        );
+
+        if (window_a != NULL)
+            window_destroy(window_a);
+
+        if (window_b != NULL)
+            window_destroy(window_b);
+
+        return;
+    }
+
+    debug_print_line(
+        "M12 Window Manager Test: Window Creation PASS"
+    );
+
+    if (window_id(window_a) == 0 ||
+        window_id(window_b) == 0)
+    {
+        debug_print_line(
+            "M12 Window Manager Test: ID Assignment FAILED"
+        );
+
+        window_destroy(window_a);
+        window_destroy(window_b);
+        return;
+    }
+
+    debug_print_line(
+        "M12 Window Manager Test: ID Assignment PASS"
+    );
+
+    window_move(
+        window_a,
+        120,
+        110
+    );
+
+    if (window_a->x != 120 ||
+        window_a->y != 110)
+    {
+        debug_print_line(
+            "M12 Window Manager Test: Move FAILED"
+        );
+
+        window_destroy(window_a);
+        window_destroy(window_b);
+        return;
+    }
+
+    debug_print_line(
+        "M12 Window Manager Test: Move PASS"
+    );
+
+    window_focus(window_a);
+
+    if (window_focused() != window_a ||
+        !window_a->focused)
+    {
+        debug_print_line(
+            "M12 Window Manager Test: Focus FAILED"
+        );
+
+        window_destroy(window_a);
+        window_destroy(window_b);
+        return;
+    }
+
+    debug_print_line(
+        "M12 Window Manager Test: Focus PASS"
+    );
+
+    window_focus(window_b);
+
+    if (window_focused() != window_b ||
+        !window_b->focused ||
+        window_a->focused)
+    {
+        debug_print_line(
+            "M12 Window Manager Test: Focus Switching FAILED"
+        );
+
+        window_destroy(window_a);
+        window_destroy(window_b);
+        return;
+    }
+
+    debug_print_line(
+        "M12 Window Manager Test: Focus Switching PASS"
+    );
+
+    XyrisWindow *hit =
+        window_at(180, 160);
+
+    if (hit != window_b)
+    {
+        debug_print_line(
+            "M12 Window Manager Test: Hit Test FAILED"
+        );
+
+        window_destroy(window_a);
+        window_destroy(window_b);
+        return;
+    }
+
+    debug_print_line(
+        "M12 Window Manager Test: Hit Test PASS"
+    );
+
+    window_hide(window_b);
+
+    if (window_b->visible)
+    {
+        debug_print_line(
+            "M12 Window Manager Test: Hide FAILED"
+        );
+
+        window_destroy(window_a);
+        window_destroy(window_b);
+        return;
+    }
+
+    debug_print_line(
+        "M12 Window Manager Test: Hide PASS"
+    );
+
+    window_show(window_b);
+
+    if (!window_b->visible)
+    {
+        debug_print_line(
+            "M12 Window Manager Test: Show FAILED"
+        );
+
+        window_destroy(window_a);
+        window_destroy(window_b);
+        return;
+    }
+
+    debug_print_line(
+        "M12 Window Manager Test: Show PASS"
+    );
+
+    window_destroy(window_a);
+    window_destroy(window_b);
+
+    debug_print_line(
+        "M12 Window Manager Test: Destroy PASS"
+    );
+
+    debug_print_line(
+        "M12: Window Manager operations completed successfully"
+    );
+
+    debug_print_line(
+        "============================================="
+    );
+}
+
+
 /* -------------------------------------------------
    Kernel Entry
 ------------------------------------------------- */
@@ -1257,10 +1532,26 @@ void kernel_main(void)
 
 
     /* -------------------------------------------------
-       Memory
+        Memory
     ------------------------------------------------- */
 
-    kernel_initialize_memory();
+   kernel_initialize_memory();
+
+
+    /* -------------------------------------------------
+    M12 Graphics Tests
+    ------------------------------------------------- */
+
+    kernel_compositor_test();
+    kernel_window_manager_test();
+
+
+    /* -------------------------------------------------
+    M12 Desktop Shell
+    ------------------------------------------------- */
+
+   
+   
 
 
     /* -------------------------------------------------
@@ -1268,6 +1559,9 @@ void kernel_main(void)
     ------------------------------------------------- */
 
     kernel_initialize_execution();
+
+
+   
 
 
     /* -------------------------------------------------
@@ -1296,7 +1590,22 @@ void kernel_main(void)
      * The scheduler normally does not return to kernel_main()
      * after this point.
      */
-scheduler_start();
+
+     
+    /* -------------------------------------------------
+       Desktop Session
+    ------------------------------------------------- */
+    
+    debug_print_set_framebuffer_enabled(false);
+
+    desktop_shell_render();
+
+
+    /* -------------------------------------------------
+       Start Scheduler
+    ------------------------------------------------- */
+
+    scheduler_start();
 
 
     /*

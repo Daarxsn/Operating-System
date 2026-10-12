@@ -12,8 +12,15 @@
 #define DEBUG_LINE_HEIGHT 12
 #define DEBUG_TEXT_COLOR  0xFFFFFF
 
+
 static int cursor_x = DEBUG_LEFT_MARGIN;
 static int cursor_y = DEBUG_TOP_MARGIN;
+
+static bool framebuffer_output_enabled = true;
+void debug_print_set_framebuffer_enabled(bool enabled)
+{
+    framebuffer_output_enabled = enabled;
+}
 
 static void debug_scroll(void)
 {
@@ -93,7 +100,11 @@ void debug_print(const char *text)
     /* Mirror the same diagnostic stream to COM1 once the serial
      * driver is initialized. Before initialization the serial API
      * safely ignores the write. */
+
     xk_serial_write_string(text);
+
+    if (!framebuffer_output_enabled)
+        return;
 
     uint32_t width = framebuffer_width();
 
@@ -131,11 +142,16 @@ void debug_print(const char *text)
         cursor_x += FONT_WIDTH;
         text++;
     }
+
+    
 }
 
 void debug_print_line(const char *text)
 {
     debug_print(text);
+
+    if (!framebuffer_output_enabled)
+        return;
 
     cursor_x = DEBUG_LEFT_MARGIN;
     cursor_y += DEBUG_LINE_HEIGHT;

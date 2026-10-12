@@ -115,10 +115,29 @@ static void coalesce_segment(heap_segment_t *segment)
     }
 }
 
-static heap_segment_t *create_segment(void)
+static heap_segment_t *create_segment(size_t minimum_payload)
 {
+    size_t header_size =
+        (sizeof(heap_segment_t) + HEAP_ALIGNMENT - 1) &
+        ~(size_t)(HEAP_ALIGNMENT - 1);
+
+    size_t required_size =
+        header_size +
+        sizeof(heap_block_t) +
+        minimum_payload +
+        HEAP_ALIGNMENT;
+
+    if (required_size < minimum_payload)
+        return NULL;
+
+    size_t required_pages =
+        (required_size + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    if (required_pages < HEAP_SEGMENT_PAGES)
+        required_pages = HEAP_SEGMENT_PAGES;
+
     phys_addr_t physical =
-        pmm_alloc_pages(HEAP_SEGMENT_PAGES);
+        pmm_alloc_pages(required_pages);
 
     if (physical == 0)
         return NULL;
@@ -129,26 +148,31 @@ static heap_segment_t *create_segment(void)
     heap_segment_t *segment =
         (heap_segment_t *)start;
 
-    size_t header_size =
-        (sizeof(heap_segment_t) + HEAP_ALIGNMENT - 1) &
-        ~(size_t)(HEAP_ALIGNMENT - 1);
+    size_t segment_size =
+        required_pages * PAGE_SIZE;
 
-    if (header_size + sizeof(heap_block_t) + HEAP_ALIGNMENT >=
-        HEAP_SEGMENT_SIZE)
+    if (header_size +
+        sizeof(heap_block_t) +
+        HEAP_ALIGNMENT >=
+        segment_size)
     {
-        pmm_free_pages(physical, HEAP_SEGMENT_PAGES);
+        pmm_free_pages(
+            physical,
+            required_pages
+        );
+
         return NULL;
     }
 
     segment->start = start;
-    segment->end = start + HEAP_SEGMENT_SIZE;
+    segment->end = start + segment_size;
     segment->next = NULL;
 
     segment->first =
         (heap_block_t *)(start + header_size);
 
     segment->first->size =
-        HEAP_SEGMENT_SIZE -
+        segment_size -
         header_size -
         sizeof(heap_block_t);
 
@@ -163,7 +187,8 @@ void heap_init(void)
     if (heap_segments != NULL)
         return;
 
-    heap_segment_t *segment = create_segment();
+    heap_segment_t *segment =
+    create_segment(0);
 
     if (segment == NULL)
         return;
@@ -201,10 +226,11 @@ void *kmalloc(size_t size)
             }
         }
 
-        heap_segment_t *segment = create_segment();
+        heap_segment_t *segment =
+        create_segment(aligned);
 
         if (segment == NULL)
-            return NULL;
+        return NULL;
 
         segment->next = heap_segments;
         heap_segments = segment;

@@ -34,14 +34,17 @@ add_executable(kernel.elf
     kernel/foundation2/event.c
     kernel/foundation2/time.c
     kernel/foundation2/config.c
+    kernel/graphics/desktop_shell.c
 
-
-    # Graphics
+   # Graphics
     kernel/graphics/framebuffer.c
     kernel/graphics/graphics.c
+    kernel/graphics/renderer.c
+    kernel/graphics/surface.c
     kernel/graphics/font.c
-
-
+    kernel/graphics/compositor.c
+    kernel/graphics/window_manager.c
+    
     # Terminal
     kernel/terminal/terminal.c
 
