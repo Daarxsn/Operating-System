@@ -44,6 +44,11 @@ set(KERNEL_SOURCES
     kernel/fs/vfs.c
     kernel/graphics/font.c
     kernel/graphics/framebuffer.c
+    kernel/graphics/renderer.c
+    kernel/graphics/surface.c
+    kernel/graphics/compositor.c
+    kernel/graphics/window_manager.c
+    kernel/graphics/desktop_shell.c
     kernel/power/power.c
     kernel/power/battery.c
     kernel/power/thermal.c

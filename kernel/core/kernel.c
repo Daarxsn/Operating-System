@@ -15,6 +15,10 @@
 #include "audio/audio.h"
 
 #include "graphics/framebuffer.h"
+#include "graphics/renderer.h"
+#include "graphics/compositor.h"
+#include "graphics/window_manager.h"
+#include "graphics/desktop_shell.h"
 #include "ui/ui.h"
 #include "power/power.h"
 
@@ -276,6 +280,10 @@ static void kernel_initialize_graphics(
 )
 {
     framebuffer_init(fb);
+
+    renderer_init();
+    compositor_init();
+    window_manager_init();
 
     /*
      * From this point onward, normal kernel diagnostics
@@ -2221,6 +2229,10 @@ boot_splash_show();
 boot_hardware_summary();
 
 boot_status_render();
+
+    /* M12 desktop shell */
+    desktop_shell_init();
+    desktop_shell_render();
     /*
      * Start the cooperative scheduler.
      *
