@@ -10,6 +10,9 @@
 #include "foundation/event.h"
 #include "foundation/resource.h"
 #include "foundation/capability.h"
+#include "graphics/accessibility.h"
+#include "graphics/application.h"
+#include "graphics/gui_input.h"
 #include "drivers/driver.h"
 #include "drivers/keyboard.h"
 #include "drivers/mouse.h"
@@ -284,6 +287,223 @@ static void test_resource_manager(void)
  * Capability Manager
  * ============================================================
  */
+
+static void test_application_lifecycle(void)
+{
+    test_ok(
+        "Application Test: Reject Invalid Creation Arguments",
+        application_create(NULL, 100, 100, 0, 0) == NULL &&
+        application_create("", 100, 100, 0, 0) == NULL &&
+        application_create("Invalid Width", 0, 100, 0, 0) == NULL &&
+        application_create("Invalid Height", 100, 0, 0, 0) == NULL
+    );
+
+    XyrisApplication *app = application_create(
+        "Lifecycle Test", 160, 120, 20, 20);
+
+    test_ok("Application Test: Creation Succeeds", app != NULL);
+
+    if (app == NULL)
+        return;
+
+    uint32_t id = app->id;
+
+    test_ok(
+        "Application Test: Initial Registration and State",
+        id != 0 &&
+        application_find(id) == app &&
+        application_state(app) == XYRIS_APP_CREATED &&
+        application_name(app) != NULL &&
+        application_window(app) != NULL
+    );
+
+    test_ok(
+        "Application Test: Created Application Is Not Running",
+        application_focus(app) == false
+    );
+
+    test_ok(
+        "Application Test: Grant Read Capability",
+        application_grant_capability(app, XK_CAP_READ) &&
+        application_check_capability(app, XK_CAP_READ)
+    );
+
+    test_ok(
+        "Application Test: Revoke Read Capability",
+        application_revoke_capability(app, XK_CAP_READ) &&
+        !application_check_capability(app, XK_CAP_READ)
+    );
+
+    test_ok(
+        "Application Test: Launch Succeeds",
+        application_launch(app) &&
+        application_state(app) == XYRIS_APP_RUNNING
+    );
+
+    test_ok(
+        "Application Test: Launched Application Can Be Focused",
+        application_focus(app) &&
+        window_focused() == application_window(app)
+    );
+
+    test_ok(
+        "Application Test: Close Succeeds",
+        application_close(app)
+    );
+
+    test_ok(
+        "Application Test: Closed Application Is Unregistered",
+        application_find(id) == NULL &&
+        application_state(app) == XYRIS_APP_EMPTY &&
+        application_name(app) == NULL &&
+        application_window(app) == NULL
+    );
+
+    test_ok(
+        "Application Test: Closed Application Has No Capabilities",
+        !application_check_capability(app, XK_CAP_READ) &&
+        !application_grant_capability(app, XK_CAP_READ)
+    );
+
+    test_ok(
+        "Application Test: Double Close Rejected",
+        !application_close(app)
+    );
+}
+
+static void test_gui_input_events(void)
+{
+    XKKeyboardEvent event = {
+        .keycode = 0,
+        .ascii = '\t',
+        .modifiers = 0,
+        .pressed = true
+    };
+
+    accessibility_init();
+
+    XyrisApplication *app_a = application_create(
+        "GUI Test A", 160, 120, 10, 10);
+    XyrisApplication *app_b = application_create(
+        "GUI Test B", 160, 120, 30, 30);
+
+    bool apps_created = app_a != NULL && app_b != NULL;
+    test_ok("GUI Input Test: Focus Test Applications Created",
+            apps_created);
+
+    bool apps_launched = apps_created &&
+        application_launch(app_a) &&
+        application_launch(app_b);
+
+    test_ok("GUI Input Test: Focus Test Applications Launched",
+            apps_launched);
+
+    if (apps_launched) {
+        test_ok("GUI Input Test: Second Application Initially Focused",
+                window_focused() == application_window(app_b));
+
+        test_ok("GUI Input Test: Tab Cycles Focus To First Application",
+                gui_input_process_keyboard_event(&event) &&
+                window_focused() == application_window(app_a));
+
+        test_ok("GUI Input Test: Tab Cycles Focus To Second Application",
+                gui_input_process_keyboard_event(&event) &&
+                window_focused() == application_window(app_b));
+
+        test_ok("GUI Input Test: Tab Focus Cycling Wraps Around",
+                gui_input_process_keyboard_event(&event) &&
+                window_focused() == application_window(app_a));
+    }
+
+    event.pressed = false;
+    test_ok(
+        "GUI Input Test: Tab Release Ignored",
+        !gui_input_process_keyboard_event(&event)
+    );
+
+    event.pressed = true;
+    accessibility_set_keyboard_navigation(false);
+    test_ok(
+        "GUI Input Test: Disabled Navigation Ignores Tab",
+        !gui_input_process_keyboard_event(&event)
+    );
+
+    event.ascii = 'x';
+    accessibility_set_keyboard_navigation(true);
+    test_ok(
+        "GUI Input Test: Unrelated Key Ignored",
+        !gui_input_process_keyboard_event(&event)
+    );
+
+    test_ok(
+        "GUI Input Test: Null Event Rejected",
+        !gui_input_process_keyboard_event(NULL)
+    );
+
+    if (app_a != NULL)
+        test_ok("GUI Input Test: First Application Cleanup",
+                application_close(app_a));
+
+    if (app_b != NULL)
+        test_ok("GUI Input Test: Second Application Cleanup",
+                application_close(app_b));
+
+    accessibility_init();
+}
+
+static void test_accessibility_settings(void)
+{
+    accessibility_init();
+    const XyrisAccessibilitySettings *settings =
+        accessibility_get_settings();
+
+    test_ok(
+        "Accessibility Test: Default Settings",
+        settings != NULL &&
+        settings->keyboard_navigation &&
+        !settings->high_contrast &&
+        !settings->reduced_motion &&
+        settings->text_scale_percent == 100
+    );
+
+    accessibility_set_keyboard_navigation(false);
+    accessibility_set_high_contrast(true);
+    accessibility_set_reduced_motion(true);
+
+    test_ok(
+        "Accessibility Test: Toggle Preferences",
+        !settings->keyboard_navigation &&
+        settings->high_contrast &&
+        settings->reduced_motion
+    );
+
+    test_ok(
+        "Accessibility Test: Valid Text Scale",
+        accessibility_set_text_scale(XYRIS_TEXT_SCALE_MIN) &&
+        settings->text_scale_percent == XYRIS_TEXT_SCALE_MIN &&
+        accessibility_set_text_scale(XYRIS_TEXT_SCALE_MAX) &&
+        settings->text_scale_percent == XYRIS_TEXT_SCALE_MAX
+    );
+
+    test_ok(
+        "Accessibility Test: Reject Invalid Text Scale",
+        !accessibility_set_text_scale(XYRIS_TEXT_SCALE_MIN - 1) &&
+        settings->text_scale_percent == XYRIS_TEXT_SCALE_MAX &&
+        !accessibility_set_text_scale(XYRIS_TEXT_SCALE_MAX + 1) &&
+        settings->text_scale_percent == XYRIS_TEXT_SCALE_MAX
+    );
+
+    accessibility_init();
+    settings = accessibility_get_settings();
+
+    test_ok(
+        "Accessibility Test: Reset Preferences",
+        settings->keyboard_navigation &&
+        !settings->high_contrast &&
+        !settings->reduced_motion &&
+        settings->text_scale_percent == 100
+    );
+}
 
 static void test_capability_manager(void)
 {
@@ -1088,6 +1308,9 @@ void run_foundation_tests(void)
     test_configuration_manager();
     test_event_manager();
     test_resource_manager();
+    test_application_lifecycle();
+    test_accessibility_settings();
+    test_gui_input_events();
     test_capability_manager();
     test_ukom_and_time();
     test_driver_manager();

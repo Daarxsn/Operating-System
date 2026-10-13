@@ -48,6 +48,9 @@ set(KERNEL_SOURCES
     kernel/graphics/surface.c
     kernel/graphics/compositor.c
     kernel/graphics/window_manager.c
+    kernel/graphics/application.c
+    kernel/graphics/accessibility.c
+    kernel/graphics/gui_input.c
     kernel/graphics/desktop_shell.c
     kernel/power/power.c
     kernel/power/battery.c
