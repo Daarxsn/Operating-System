@@ -281,6 +281,89 @@ static void test_resource_manager(void)
  * ============================================================
  */
 
+static void test_application_lifecycle(void)
+{
+    test_ok(
+        "Application Test: Reject Invalid Creation Arguments",
+        application_create(NULL, 100, 100, 0, 0) == NULL &&
+        application_create("", 100, 100, 0, 0) == NULL &&
+        application_create("Invalid Width", 0, 100, 0, 0) == NULL &&
+        application_create("Invalid Height", 100, 0, 0, 0) == NULL
+    );
+
+    XyrisApplication *app = application_create(
+        "Lifecycle Test", 160, 120, 20, 20);
+
+    test_ok("Application Test: Creation Succeeds", app != NULL);
+
+    if (app == NULL)
+        return;
+
+    uint32_t id = app->id;
+
+    test_ok(
+        "Application Test: Initial Registration and State",
+        id != 0 &&
+        application_find(id) == app &&
+        application_state(app) == XYRIS_APP_CREATED &&
+        application_name(app) != NULL &&
+        application_window(app) != NULL
+    );
+
+    test_ok(
+        "Application Test: Created Application Is Not Running",
+        application_focus(app) == false
+    );
+
+    test_ok(
+        "Application Test: Grant Read Capability",
+        application_grant_capability(app, XK_CAP_READ) &&
+        application_check_capability(app, XK_CAP_READ)
+    );
+
+    test_ok(
+        "Application Test: Revoke Read Capability",
+        application_revoke_capability(app, XK_CAP_READ) &&
+        !application_check_capability(app, XK_CAP_READ)
+    );
+
+    test_ok(
+        "Application Test: Launch Succeeds",
+        application_launch(app) &&
+        application_state(app) == XYRIS_APP_RUNNING
+    );
+
+    test_ok(
+        "Application Test: Launched Application Can Be Focused",
+        application_focus(app) &&
+        window_focused() == application_window(app)
+    );
+
+    test_ok(
+        "Application Test: Close Succeeds",
+        application_close(app)
+    );
+
+    test_ok(
+        "Application Test: Closed Application Is Unregistered",
+        application_find(id) == NULL &&
+        application_state(app) == XYRIS_APP_EMPTY &&
+        application_name(app) == NULL &&
+        application_window(app) == NULL
+    );
+
+    test_ok(
+        "Application Test: Closed Application Has No Capabilities",
+        !application_check_capability(app, XK_CAP_READ) &&
+        !application_grant_capability(app, XK_CAP_READ)
+    );
+
+    test_ok(
+        "Application Test: Double Close Rejected",
+        !application_close(app)
+    );
+}
+
 static void test_gui_input_events(void)
 {
     XKKeyboardEvent event = {
@@ -800,6 +883,7 @@ void run_foundation_tests(void)
     test_configuration_manager();
     test_event_manager();
     test_resource_manager();
+    test_application_lifecycle();
     test_accessibility_settings();
     test_gui_input_events();
     test_capability_manager();
