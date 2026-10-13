@@ -8,10 +8,6 @@
 
 void syscall_interrupt_handler(registers_t *regs)
 {
-    debug_print("RING3 TEST: SYSCALL HANDLER ENTER\n");
-    debug_print("RING3 TEST: SYSCALL NUMBER = ");
-    debug_print_hex64((uint64_t)regs->rax);
-    debug_print("\n");
 
     xyris_syscall_result_t result =
         syscall_dispatch(

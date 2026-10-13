@@ -902,7 +902,6 @@ static void kernel_initialize_interrupts(void)
 
 
 
-    debug_print_line("IOAPIC DEBUG: before ioapic_initialize");
 
 
 
@@ -914,7 +913,6 @@ static void kernel_initialize_interrupts(void)
 
 
 
-    debug_print_line("IOAPIC DEBUG: calling ioapic_initialize");
 
 
 
@@ -1042,7 +1040,6 @@ static void kernel_initialize_interrupts(void)
 
 
 
-       debug_print_line("IOAPIC DEBUG: before PIT route");
 
     ioapic_set_irq(
 
@@ -1054,11 +1051,9 @@ static void kernel_initialize_interrupts(void)
 
     );
 
-    debug_print_line("IOAPIC DEBUG: after PIT route");
 
 
 
-    debug_print_line("IOAPIC DEBUG: before keyboard route");
 
     ioapic_set_irq(
 
@@ -1070,11 +1065,9 @@ static void kernel_initialize_interrupts(void)
 
     );
 
-    debug_print_line("IOAPIC DEBUG: after keyboard route");
 
 
 
-    debug_print_line("IOAPIC DEBUG: before mouse route");
 
     ioapic_set_irq(
 
@@ -1086,7 +1079,6 @@ static void kernel_initialize_interrupts(void)
 
     );
 
-    debug_print_line("IOAPIC DEBUG: after mouse route");
 
 
 
@@ -1098,7 +1090,6 @@ static void kernel_initialize_interrupts(void)
 
 
 
-    debug_print_line("IOAPIC DEBUG: all routes programmed");
 
 
 
@@ -1126,7 +1117,6 @@ static void kernel_initialize_interrupts(void)
 
 
 
-    debug_print_line("IOAPIC DEBUG: before reading GSI 0 LOW");
 
     debug_print_hex64(
 

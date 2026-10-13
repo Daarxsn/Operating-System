@@ -153,7 +153,7 @@ static void free_page_tables(uint64_t* table, int level)
         (phys_addr_t)virt_to_phys(table)
     );
 }
-    
+
 /* --------------------------------------------------
    Allocate Page Table
 -------------------------------------------------- */
@@ -481,9 +481,7 @@ bool vmm_map_page(
 
     vmm_flush(virtual_addr);
 
-    debug_print(
-        "VMM: page mapped successfully\n"
-    );
+
 
     return true;
 }
