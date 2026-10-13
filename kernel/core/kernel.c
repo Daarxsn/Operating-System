@@ -18,6 +18,9 @@
 #include "graphics/window_manager.h"
 #include "ui/ui.h"
 #include "graphics/desktop_shell.h"
+#include "graphics/accessibility.h"
+#include "graphics/gui_input.h"
+#include "graphics/application.h"
 
 #include "cpu/gdt.h"
 #include "cpu/idt.h"
@@ -74,6 +77,7 @@ static void thread_a(void);
 static void thread_b(void);
 static void preemption_test_a(void);
 static void preemption_test_b(void);
+static void gui_input_thread(void);
 
 /* Shared state for the timer-preemption runtime test.  The test threads
  * deliberately never call scheduler_yield().  Thread A waits for B to run;
@@ -254,6 +258,7 @@ static void kernel_initialize_graphics(
     compositor_init();
     window_manager_init();
     framebuffer_clear(0x1E1E2E);
+    accessibility_init();
     desktop_shell_init();
     debug_print_line("M12 Desktop Shell: Initialization PASS");
     ui_init();
@@ -689,6 +694,15 @@ static void kernel_initialize_execution(void)
    Test Threads
 ------------------------------------------------- */
 
+/* Poll GUI keyboard navigation outside interrupt context. */
+static void gui_input_thread(void)
+{
+    for (;;) {
+        (void)gui_input_poll();
+        scheduler_sleep_current(1);
+    }
+}
+
 /* Cooperative scheduler test thread A. */
 static void thread_a(void)
 {
@@ -950,6 +964,8 @@ static void kernel_initialize_kernel(void)
     ------------------------------------------------- */
 
     xk_capability_init();
+
+    application_manager_init();
 
     boot_step_ok(
         "Capability Manager Initialized"
@@ -1214,6 +1230,24 @@ else
         "Preemption Test Thread B Created"
     );
 }
+
+    /* GUI input polling runs as a sleeping scheduler thread. */
+    thread_t *gui_input_thread_handle =
+        thread_create(
+            kernel_process,
+            gui_input_thread,
+            THREAD_PRIORITY_NORMAL
+        );
+
+    if (gui_input_thread_handle == NULL)
+    {
+        boot_step_fail("Failed To Create GUI Input Thread");
+    }
+    else
+    {
+        scheduler_add_thread(gui_input_thread_handle);
+        boot_step_ok("GUI Input Thread Created");
+    }
 
     /* -------------------------------------------------
        Known Platform Limitations

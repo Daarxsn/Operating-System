@@ -44,6 +44,9 @@ add_executable(kernel.elf
     kernel/graphics/font.c
     kernel/graphics/compositor.c
     kernel/graphics/window_manager.c
+    kernel/graphics/application.c
+    kernel/graphics/accessibility.c
+    kernel/graphics/gui_input.c
     
     # Terminal
     kernel/terminal/terminal.c
